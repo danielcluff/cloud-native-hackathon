@@ -50,9 +50,31 @@ export interface FrameMeta {
   height: number;
 }
 
+export type Direction = 'left' | 'ahead' | 'right' | 'unclear';
+export type Proximity = 'near' | 'mid' | 'far' | 'unclear';
+
+/**
+ * How many people are in or near the walking path. A single passer-by is
+ * reported but not announced; a group or crowd is something to route around.
+ */
+export type PeopleInPath = 'none' | 'single' | 'group' | 'crowd' | 'unclear';
+
+/** Which side of the path has more open floor for going around. */
+export type OpenSide = 'left' | 'right' | 'either' | 'neither' | 'unclear';
+
+export interface VisionHazard {
+  /** 'fixed' = won't move (furniture, column, step...); 'people' = a group or crowd. */
+  kind: 'fixed' | 'people';
+  /** e.g. 'furniture', 'step_or_stairs', 'group'. */
+  label: string;
+  direction: Direction;
+  proximity: Proximity;
+}
+
 /**
  * Result of a visible-obstacle assessment. A result NEVER proves a path is safe;
- * `clearOfVisibleObstacles` only means none were detected in this frame.
+ * `clearOfVisibleObstacles` only means no fixed obstacle or group was detected
+ * in this frame.
  */
 export type VisionAssessment =
   | { state: 'unavailable'; reason: string }
@@ -64,14 +86,19 @@ export type VisionAssessment =
       state: 'ok';
       frameSeq: number;
       assessedAt: number;
-      /** Short phrase suitable for speech, e.g. "Person ahead, slightly left." */
+      /** Short phrase for speech, e.g. "Table ahead, close. More room on the right." */
       spokenSummary: string;
-      hazards: Array<{
-        label: string;
-        direction: 'left' | 'ahead' | 'right' | 'unclear';
-        proximity: 'near' | 'mid' | 'far' | 'unclear';
-      }>;
+      /** Fixed obstacles first, then groups; single passers-by are not hazards. */
+      hazards: VisionHazard[];
+      people: PeopleInPath;
+      openSide: OpenSide;
       clearOfVisibleObstacles: boolean;
+      /**
+       * Stable identity of what's being announced (e.g. "fixed:furniture:ahead"),
+       * so the app doesn't re-announce the same thing when only the wording
+       * changes. null when there is nothing to announce.
+       */
+      alertKey: string | null;
     };
 
 /**

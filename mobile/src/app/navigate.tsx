@@ -103,8 +103,10 @@ export default function NavigateScreen() {
     <Screen>
       <Heading>Navigate</Heading>
       <DemoBanner title="Obstacle hints only — not a safety device">
-        The camera describes obstacles it can see. It can miss things and can never confirm a path is safe. Keep using
-        your cane, guide dog, or a sighted guide. Use your planned route and confirm landmarks for direction.
+        The camera announces fixed obstacles (furniture, columns, steps, signs, barriers) and groups of people standing
+        in your way, and says which side has more room. Single passers-by are not announced. It can miss things and can
+        never confirm a path is safe. Keep using your cane, guide dog, or a sighted guide, and confirm landmarks for
+        direction.
       </DemoBanner>
 
       {!permission ? (
@@ -215,6 +217,11 @@ export default function NavigateScreen() {
             <Body>Dropped (consumer busy): {stats.dropped}</Body>
             <Body>Errors: {stats.errors}{stats.lastError ? ` (${stats.lastError})` : ''}</Body>
             <Body>Last assessment: {resultText}</Body>
+            {last?.result.state === 'ok' && !resultStale ? (
+              <Body>
+                People in path: {last.result.people}. More room: {last.result.openSide}.
+              </Body>
+            ) : null}
           </View>
         </>
       )}

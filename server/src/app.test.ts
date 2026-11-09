@@ -14,10 +14,12 @@ const origLog = console.log;
 const fakeAi: OpenAIClient = {
   decide: async () => [
     { type: 'predicate', name: 'image_usable', probability: 0.9 },
-    { type: 'predicate', name: 'obstacle_in_path', probability: 0.9 },
-    { type: 'choice', name: 'obstacle_kind', choice: 'person', probabilities: [], confidence: 0.9 },
-    { type: 'choice', name: 'obstacle_direction', choice: 'ahead', probabilities: [], confidence: 0.9 },
-    { type: 'score', name: 'obstacle_distance', score: 1, probabilities: [], confidence: 0.9 },
+    { type: 'predicate', name: 'fixed_obstacle_in_path', probability: 0.9 },
+    { type: 'choice', name: 'fixed_obstacle_kind', choice: 'furniture', probabilities: [], confidence: 0.9 },
+    { type: 'choice', name: 'fixed_obstacle_direction', choice: 'ahead', probabilities: [], confidence: 0.9 },
+    { type: 'score', name: 'fixed_obstacle_distance', score: 1, probabilities: [], confidence: 0.9 },
+    { type: 'choice', name: 'people_in_path', choice: 'single', probabilities: [], confidence: 0.9 },
+    { type: 'choice', name: 'open_side', choice: 'right', probabilities: [], confidence: 0.9 },
   ],
   transcribe: async () => 'I like eBPF',
   // Model "hallucinates" id 999 alongside a real candidate.
@@ -89,7 +91,7 @@ test('vision: maps Decisions answers and never logs image bytes', async () => {
   const body = await res.json();
   assert.equal(body.state, 'ok');
   assert.equal(body.frameSeq, 42);
-  assert.equal(body.spokenSummary, 'Person ahead, a few steps away.');
+  assert.equal(body.spokenSummary, 'Furniture ahead, a few steps away. More room on the right.');
   assert.ok(logs.every((l) => !l.includes(marker) && !l.includes(SECRET)));
 });
 
