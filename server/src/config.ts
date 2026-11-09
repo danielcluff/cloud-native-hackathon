@@ -16,6 +16,8 @@ export interface ServerConfig {
   limits: { vision: { perMinute: number; perDay: number }; voice: { perMinute: number; perDay: number } };
   /** Model ids, overridable without a code change. Defaults from OpenAI docs (2026-11-09). */
   models: { vision: string; transcribe: string; text: string };
+  /** Reasoning effort for planning turns; 'low' halves latency (measured 10s -> 5s). */
+  textReasoningEffort: string | null;
 }
 
 const PLACEHOLDER_KEYS = new Set(['', 'sk-REPLACE_ME']);
@@ -45,5 +47,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       transcribe: env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-transcribe',
       text: env.OPENAI_TEXT_MODEL?.trim() || 'gpt-6-astra',
     },
+    // Set OPENAI_TEXT_REASONING_EFFORT=default to use the model's own default.
+    textReasoningEffort:
+      env.OPENAI_TEXT_REASONING_EFFORT?.trim() === 'default' ? null : env.OPENAI_TEXT_REASONING_EFFORT?.trim() || 'low',
   };
 }

@@ -92,7 +92,8 @@ the phone.
 Optional env in the Deployment:
 - Model overrides: `OPENAI_VISION_MODEL` (default `gpt-6-luna`),
   `OPENAI_TRANSCRIBE_MODEL` (`gpt-transcribe`) and `OPENAI_TEXT_MODEL`
-  (`gpt-6-astra`).
+  (`gpt-6-astra`), and `OPENAI_TEXT_REASONING_EFFORT` (`low`; `default` uses the
+  model's own, which roughly doubles planning latency).
 - Usage caps: `LIMIT_VISION_PER_MINUTE` (70), `LIMIT_VISION_PER_DAY` (3000),
   `LIMIT_VOICE_PER_MINUTE` (10) and `LIMIT_VOICE_PER_DAY` (300).
 

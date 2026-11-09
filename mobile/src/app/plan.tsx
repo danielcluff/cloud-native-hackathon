@@ -6,7 +6,7 @@ import { newConversationId, resetConversation, voiceTurn } from '../api';
 import { useSpeech } from '../audio/SpeechProvider';
 import { useMicCheck } from '../audio/useMicCheck';
 import { BACKEND_URL } from '../config';
-import { describeSession, formatLocal } from '../plan/format';
+import { FIT_LABEL, dayName, describeSession, formatLocal } from '../plan/format';
 import { BigButton, Body, DemoBanner, Heading, Screen, Status, colors, styles as ui } from '../ui/components';
 
 type Phase = 'idle' | 'recording' | 'thinking';
@@ -190,12 +190,22 @@ export default function PlanScreen() {
 
       {plan?.state === 'ok' && plan.recommendations.length > 0 ? (
         <>
-          <Heading>Your plan ({plan.recommendations.length})</Heading>
+          <Heading>
+            {plan.day ? `Your ${dayName(plan.day)} plan` : 'Your plan'} ({plan.recommendations.length})
+          </Heading>
+          <Body>
+            Matches fit what you asked for. Related and open-time sessions fill the rest of the day; say “swap” or
+            “remove” to change any of them.
+          </Body>
           {plan.recommendations.map((sess, i) => {
             const route = plan.routes.find((r) => r.toSessionId === sess.id);
             return (
               <View key={sess.id} style={s.card}>
-                <View accessible accessibilityLabel={`Session ${i + 1}. ${describeSession(sess)}`}>
+                <View
+                  accessible
+                  accessibilityLabel={`Session ${i + 1}, ${FIT_LABEL[sess.fit]}. ${describeSession(sess)}`}
+                >
+                  <Text style={[s.badge, sess.fit === 'match' ? s.badgeMatch : s.badgeOther]}>{FIT_LABEL[sess.fit]}</Text>
                   <Text style={s.label}>
                     {formatLocal(sess.startsAt)} – {formatLocal(sess.endsAt, false)}
                   </Text>
@@ -245,4 +255,15 @@ const s = StyleSheet.create({
   },
   card: { gap: 8, padding: 14, borderRadius: 12, backgroundColor: colors.surface },
   label: { color: colors.accent, fontSize: 16, fontWeight: '800' },
+  badge: {
+    alignSelf: 'flex-start',
+    fontSize: 15,
+    fontWeight: '800',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  badgeMatch: { backgroundColor: colors.accent, color: colors.buttonText },
+  badgeOther: { borderWidth: 1, borderColor: colors.text, color: colors.text },
 });

@@ -89,9 +89,12 @@ cd server && npm run typecheck && npm test
 - **Plan**:
   - Tap **Talk** and say what you're interested in, then tap **Done**. You can
     also type instead.
-  - The backend transcribes it, picks sessions only from the live official
-    schedule feed (anything it can't match there is dropped), and the reply is
-    spoken.
+  - The backend transcribes it and the AI picks **direct matches** only from
+    the live official schedule feed (anything it can't match there is dropped).
+    The server then fills the rest of that day's open time with related real
+    talks, leaving walking time between rooms (10 min within a building, 20
+    between buildings). Each session is labelled **Match**, **Related** or
+    **Fills open time**, and the reply is spoken.
   - Revise by talking again ("only Wednesday", "nothing about security").
   - Each session has **Hear details**, **Hear route** (building and level
     only, confirmed with signs or staff) and **Open on official schedule**.
