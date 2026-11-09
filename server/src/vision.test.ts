@@ -24,6 +24,8 @@ function frame(...over: DecisionAnswer[]): DecisionAnswer[] {
   const base = [
     p('image_usable', 0.99),
     p('facing_wall', 0.02),
+    p('floor_visible', 0.95),
+    p('walk_into', 0.05),
     p('path_clear', 0.9),
     c('blocker_kind', 'none'),
     c('blocker_position', 'none'),
@@ -143,17 +145,80 @@ test('single standing person is flagged for two-frame confirmation; groups are a
   assert.equal(group.state === 'ok' && group.standingPerson, undefined);
 });
 
-test('resolveSteer: trusts a consistent model answer, overrides an inconsistent one', () => {
-  const base = { blocked: true, facingWall: false, position: 'center' as const };
+test('resolveSteer: three strengths, trusting the model only toward an open side', () => {
+  const base = { blocked: true, facingWall: false, position: 'center' as const, proximity: 'mid' as const };
   assert.equal(resolveSteer({ ...base, modelSteer: 'veer_left', leftOpen: 0.9, rightOpen: 0.9 }), 'veer_left');
-  // Model says veer left, but the left is not open: go right instead.
+  assert.equal(resolveSteer({ ...base, modelSteer: 'slight_right', leftOpen: 0.9, rightOpen: 0.9 }), 'slight_right');
+  // Model says go left, but the left is closed: derive instead.
   assert.equal(resolveSteer({ ...base, modelSteer: 'veer_left', leftOpen: 0.1, rightOpen: 0.9 }), 'veer_right');
-  // Obstacle in the left part, model unsure: go right.
+  // Obstacle at the left edge: a slight correction right, or a veer if it's close.
+  assert.equal(resolveSteer({ ...base, position: 'left_part', modelSteer: null, leftOpen: 0.9, rightOpen: 0.9 }), 'slight_right');
   assert.equal(
-    resolveSteer({ ...base, position: 'left_part', modelSteer: null, leftOpen: 0.9, rightOpen: 0.9 }),
+    resolveSteer({ ...base, position: 'left_part', proximity: 'near', modelSteer: null, leftOpen: 0.9, rightOpen: 0.9 }),
     'veer_right',
   );
+  // Something you can step around in the middle, even close: veer, not turn.
+  assert.equal(resolveSteer({ ...base, proximity: 'near', modelSteer: null, leftOpen: 0.9, rightOpen: 0.4 }), 'veer_left');
+  // A body-height barrier ahead (counter): turn toward the opening.
+  assert.equal(resolveSteer({ ...base, walkInto: true, modelSteer: 'straight', leftOpen: 0.9, rightOpen: 0.2 }), 'turn_left');
   // Nothing open: turn to look for a path.
   assert.equal(resolveSteer({ ...base, modelSteer: null, leftOpen: 0.1, rightOpen: 0.1 }), 'turn_either');
   assert.equal(resolveSteer({ ...base, blocked: false, modelSteer: 'veer_left', leftOpen: 0.9, rightOpen: 0.9 }), 'straight');
+});
+
+test('facing a counter at an angle (floor still visible) -> turn toward the opening, not "clear"', () => {
+  // Real answer shape for recording 2, t119: path_clear 0.92 but walk_into 0.72, left open.
+  const r = mapVisionAnswers(
+    frame(
+      p('path_clear', 0.92),
+      p('walk_into', 0.72),
+      c('blocker_kind', 'table_or_counter', 0.5),
+      p('left_open', 0.9),
+      p('right_open', 0.2),
+      c('steer', 'straight', 0.11),
+    ),
+    20,
+  );
+  assert.equal(r.state, 'ok');
+  if (r.state !== 'ok') return;
+  assert.equal(r.steer, 'turn_left');
+  assert.equal(r.spokenSummary, 'Turn left to find a path. Table or counter ahead.');
+  assert.equal(r.walkInto, true);
+});
+
+test('looking at a countertop with no floor in view -> barrier, named, turn', () => {
+  // Recording 2, t122-t123: the model called the countertop "floor" (path_clear 0.66).
+  const r = mapVisionAnswers(
+    frame(p('path_clear', 0.66), p('floor_visible', 0.1), c('blocker_kind', 'table_or_counter', 0.6), p('left_open', 0.2), p('right_open', 0.2)),
+    21,
+  );
+  assert.equal(r.state === 'ok' && r.spokenSummary, 'Turn left or right to find a path. Table or counter ahead.');
+});
+
+test('a person standing right in front hides the floor but is still a veer, not a barrier', () => {
+  const r = mapVisionAnswers(
+    frame(
+      p('path_clear', 0.1),
+      p('floor_visible', 0.2),
+      p('walk_into', 0.9),
+      c('blocker_kind', 'person_standing'),
+      c('blocker_position', 'center'),
+      s('blocker_distance', 0.1),
+      p('right_open', 0.3),
+    ),
+    22,
+  );
+  assert.equal(r.state === 'ok' && r.spokenSummary, 'Veer left. Person standing ahead, close.');
+});
+
+test('clear path with a confident small correction says "Slightly left" first', () => {
+  const r = mapVisionAnswers(frame(c('steer', 'slight_left', 0.7)), 23);
+  assert.equal(r.state, 'ok');
+  if (r.state !== 'ok') return;
+  assert.equal(r.spokenSummary, 'Slightly left. Path ahead looks clear.');
+  assert.equal(r.alertKey, 'clear:slight_left');
+  assert.equal(r.clearOfVisibleObstacles, true);
+  // Unsure drift is ignored.
+  const unsure = mapVisionAnswers(frame(c('steer', 'slight_left', 0.3)), 24);
+  assert.equal(unsure.state === 'ok' && unsure.alertKey, 'clear');
 });

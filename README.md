@@ -109,11 +109,15 @@ cd server && npm run typecheck && npm test
     height, pointing forward. Walls and furniture *beside* the path are ignored
     (so walking down a corridor doesn't trigger cues).
   - Every assessment answers **"is the path ahead clear?"** and, if not,
-    **which way to go**, direction first: *"Veer right. Bag on the floor on
-    the left of your path, close."*, or *"Turn left to find a path. Wall or
-    door ahead."* when the way is blocked or you're facing a wall (instead of
-    "camera unclear"). "Camera view unclear" is only for blur, darkness or a
-    covered lens.
+    **which way to go**, direction first, in three strengths:
+    - **"Slightly left/right"**: a small correction (something at the edge of
+      the path, or drifting toward an edge).
+    - **"Veer left/right"**: a clear step around something in the middle of
+      the path, such as a person, chair, bag or trash can.
+    - **"Turn left/right to find a path"**: straight ahead is blocked by a
+      barrier (a wall, a fridge, or a counter, even when you face it at an
+      angle with floor showing below it, or look down at a countertop).
+  - "Camera view unclear" is only for blur, darkness or a covered lens.
   - Obstacles get specific names (table or counter, chair, bag on the floor,
     trash can, column, step or stairs, sign or barrier, planter…). If the
     **same obstacle stays in view for 3 assessments** (you've stopped in front

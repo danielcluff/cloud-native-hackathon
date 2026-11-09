@@ -83,3 +83,18 @@ test('errors are reported but rate-limited', () => {
   assert.match(p.decide(err, 0, 10) ?? '', /unavailable/);
   assert.equal(p.decide(err, 1000, 1010), null);
 });
+
+test('a drift correction on a clear path is spoken once, not repeated', () => {
+  const p = new FeedbackPolicy();
+  const drift = (): VisionAssessment => ({
+    ...(clear() as Extract<VisionAssessment, { state: 'ok' }>),
+    steer: 'slight_left',
+    spokenSummary: 'Slightly left. Path ahead looks clear.',
+    alertKey: 'clear:slight_left',
+  });
+  assert.equal(p.decide(clear(), 0, 100), 'Path ahead looks clear.');
+  assert.equal(p.decide(drift(), 1000, 1100), 'Slightly left. Path ahead looks clear.');
+  assert.equal(p.decide(drift(), 2000, 2100), null);
+  assert.equal(p.decide(drift(), 3000, 3100), null);
+  assert.equal(p.decide(clear(), 4000, 4100), null); // back to centered: no extra chatter
+});

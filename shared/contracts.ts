@@ -63,13 +63,23 @@ export type PeopleInPath = 'none' | 'single' | 'group' | 'crowd' | 'unclear';
 export type OpenSide = 'left' | 'right' | 'either' | 'neither' | 'unclear';
 
 /**
- * Which way to go. The walking path is the CENTER of the camera view.
+ * Which way to go, in three strengths. The walking path is the CENTER of the camera view.
  * - straight: the path ahead looks clear
- * - veer_*: something is in the path; a small sidestep that way gets around it
- * - turn_*: the path is blocked (or the camera faces a wall); rotate that way to look for a path
+ * - slight_*: a small correction (something at the edge of the path, or drifting toward an edge)
+ * - veer_*: a clear step around something in the middle of the path
+ * - turn_*: straight ahead is blocked up close (counter, wall...); rotate that way to find a path
  * - turn_either: blocked and neither side looks better; rotate to look for a path
  */
-export type Steer = 'straight' | 'veer_left' | 'veer_right' | 'turn_left' | 'turn_right' | 'turn_either' | 'unclear';
+export type Steer =
+  | 'straight'
+  | 'slight_left'
+  | 'slight_right'
+  | 'veer_left'
+  | 'veer_right'
+  | 'turn_left'
+  | 'turn_right'
+  | 'turn_either'
+  | 'unclear';
 
 /** Where an obstacle sits inside the walking path (the center band of the view). */
 export type PathPosition = 'left_part' | 'center' | 'right_part' | 'unclear';
@@ -112,6 +122,8 @@ export type VisionAssessment =
       steer: Steer;
       /** The camera faces a wall, door or large surface at close range. */
       facingWall: boolean;
+      /** Walking straight ~2 m would hit something at body height (e.g. a counter), even if floor shows below it. */
+      walkInto?: boolean;
       clearOfVisibleObstacles: boolean;
       /**
        * Stable identity of what's being announced (obstacle, position and
