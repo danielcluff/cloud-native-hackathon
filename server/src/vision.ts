@@ -1,133 +1,136 @@
-import type { Direction, OpenSide, PeopleInPath, Proximity, VisionAssessment, VisionHazard } from '../../shared/contracts.ts';
+import type {
+  OpenSide,
+  PathPosition,
+  PeopleInPath,
+  Proximity,
+  Steer,
+  VisionAssessment,
+  VisionHazard,
+} from '../../shared/contracts.ts';
 import type { DecisionAnswer, DecisionQuestion, DecisionsRequest } from './openai.ts';
 
 /**
- * Obstacle assessment via OpenAI Decisions. The model answers fixed questions
- * with probabilities; we map them to a conservative, speakable result.
+ * Walking-path assessment via OpenAI Decisions.
  *
- * Priorities (Daniel, 2026-11-09):
- *  1. FIXED obstacles (things that won't move) are what we help route around.
- *  2. Groups and crowds can obstruct the path. The phone confirms a lone
- *     standing person over multiple frames before announcing them.
- *  3. When something is in the path, look for the nearest visible opening.
- *
- * Safety stance: we only ever claim "no fixed obstacles detected in view",
- * never that a path is safe. Unclear frames return `unknown`.
+ * Model of the world (Daniel, 2026-11-09, after a walk-through recording):
+ *  - The WALKING PATH is the center band of the camera view. Only things in
+ *    that band matter; walls and furniture beside it are not announced.
+ *  - Every frame answers: is the path ahead clear? If not, which way to go:
+ *    a small "veer" around something, or "turn" to look for a new path
+ *    (blocked, or facing a wall).
+ *  - Fixed obstacles matter most. People walking through are ignored; a single
+ *    person standing in the path is confirmed on the phone over two frames; a
+ *    group or crowd in the path is something to go around.
+ *  - Never claim a path is safe. "Path ahead looks clear" describes the view.
  */
 
 const CONTEXT =
-  'This photo is from a phone camera held at chest height by a blind or low-vision person walking ' +
-  'through a conference venue. "The walking path" means the floor area directly ahead, about one ' +
-  'body-width wide, up to roughly 4 meters away. "Fixed obstacles" are things that will not move out ' +
-  'of the way on their own: furniture, columns, walls, closed doors, steps and stairs, sign stands, ' +
-  'stanchions and barriers, booths, carts, and bags or boxes on the floor. People are NOT fixed obstacles.';
+  'This photo is from a phone held at chest height, pointing forward, by a blind or low-vision person walking ' +
+  'through a conference venue. THE WALKING PATH is the vertical band in the middle third of the image, from the ' +
+  'bottom edge up to the floor about 3 meters ahead. Only things inside or crossing that band are "in the path". ' +
+  'Walls, furniture or people beside the band are NOT in the path. Ignore people who are walking through; count ' +
+  'people who are standing still.';
 
-const NONE = { value: 'none', description: 'Nothing like this is visible.' };
-const DIRECTION_CHOICES = [
-  { value: 'left', description: 'Clearly to the walker’s left, alongside the path.' },
-  { value: 'slight_left', description: 'Ahead and just left of center, at the left edge of the walking path.' },
-  { value: 'ahead', description: 'Directly ahead, in the center of the walking path.' },
-  { value: 'slight_right', description: 'Ahead and just right of center, at the right edge of the walking path.' },
-  { value: 'right', description: 'Clearly to the walker’s right, alongside the path.' },
+const NONE = { value: 'none', description: 'Nothing in the walking path.' };
+
+export const BLOCKER_KINDS = [
+  { value: 'table_or_counter', description: 'A table, counter, desk, bar or booth.' },
+  { value: 'chair_or_bench', description: 'A chair, stool, sofa or bench.' },
+  { value: 'backpack_or_bag', description: 'A backpack, bag, suitcase or box on the floor.' },
+  { value: 'trash_can', description: 'A trash or recycling bin.' },
+  { value: 'column_or_pillar', description: 'A column, pillar or post.' },
+  { value: 'wall_or_door', description: 'A wall, closed door, glass wall or window.' },
+  { value: 'step_or_stairs', description: 'A step, curb, ramp edge, stairs or escalator.' },
+  { value: 'sign_or_barrier', description: 'A sign stand, easel, stanchion, rope or barrier.' },
+  { value: 'plant_or_decor', description: 'A planter, plant, display or decoration.' },
+  { value: 'cable_or_small_object', description: 'A cable, mat edge or small object on the floor.' },
+  { value: 'person_standing', description: 'One person standing still.' },
+  { value: 'group_of_people', description: 'Two or more people standing together.' },
+  { value: 'other', description: 'Something else.' },
   NONE,
 ];
-const FIXED_TARGET =
-  'Use the same obstacle for kind, direction and distance: the nearest fixed obstacle in the path, ' +
-  'or, if none is in the path, the nearest fixed obstacle within about one meter alongside it.';
 
 export const VISION_QUESTIONS: DecisionQuestion[] = [
   {
     type: 'predicate',
     name: 'image_usable',
     instructions:
-      'Is the image clear enough to judge the walking path? Answer false if it is very blurry, too dark, ' +
-      'covered by a finger, or pointed at the ceiling or at the floor right by the feet.',
+      'Can you see the scene well enough to judge it? Answer false ONLY if the image is very blurry, too dark, ' +
+      'covered by a finger, or pointed at the ceiling or the floor right by the feet. A wall, door or object filling ' +
+      'the view IS usable: answer true.',
   },
   {
     type: 'predicate',
-    name: 'fixed_obstacle_in_path',
+    name: 'facing_wall',
     instructions:
-      'Is there a FIXED obstacle (not a person) in or partly in the walking path within about 4 meters? ' +
-      'Ignore people entirely for this question.',
+      'Is the camera facing a wall, closed door, window or other large surface that fills most of the view within ' +
+      'about 1.5 meters, so there is no way forward straight ahead?',
+  },
+  {
+    type: 'predicate',
+    name: 'path_clear',
+    instructions:
+      'Is THE WALKING PATH (center band) clear of anything a person could bump into or trip over for about the next ' +
+      '3 meters? Ignore people walking through and anything beside the band.',
   },
   {
     type: 'choice',
-    name: 'fixed_obstacle_kind',
-    instructions: `What kind of obstacle is it? ${FIXED_TARGET} An occupied chair still counts as a chair.`,
+    name: 'blocker_kind',
+    instructions: 'What is the nearest thing inside THE WALKING PATH?',
+    choices: BLOCKER_KINDS,
+  },
+  {
+    type: 'choice',
+    name: 'blocker_position',
+    instructions: 'Where inside THE WALKING PATH is that nearest thing?',
     choices: [
-      { value: 'table', description: 'A table or desk, including its legs and projecting edge.' },
-      { value: 'chair', description: 'A chair or stool, occupied or empty.' },
-      { value: 'furniture', description: 'Other furniture, such as a bench, booth counter, or cart.' },
-      { value: 'step_or_stairs', description: 'A step, curb, ramp edge, stairs, or escalator.' },
-      { value: 'column_or_wall', description: 'A column, pillar, wall, glass panel, or closed door.' },
-      { value: 'sign_or_barrier', description: 'Sign stand, stanchion, rope, or barrier.' },
-      { value: 'object_on_floor', description: 'Bag, box, cable, or other object on the floor.' },
-      { value: 'other', description: 'Some other fixed obstacle.' },
+      { value: 'left_part', description: 'In the left part of the path.' },
+      { value: 'center', description: 'In the middle of the path.' },
+      { value: 'right_part', description: 'In the right part of the path.' },
       NONE,
     ],
   },
   {
-    type: 'choice',
-    name: 'fixed_obstacle_direction',
-    instructions: `Where is the obstacle from the walker’s point of view? ${FIXED_TARGET} Use the nearest part that could obstruct the walker.`,
-    choices: DIRECTION_CHOICES,
-  },
-  {
     type: 'score',
-    name: 'fixed_obstacle_distance',
-    instructions: `How far away is the nearest edge of the obstacle? ${FIXED_TARGET}`,
+    name: 'blocker_distance',
+    instructions: 'How far away is the nearest thing inside THE WALKING PATH?',
     levels: [
       { label: 'near', description: 'Within about 1 meter, a step or two away.' },
       { label: 'mid', description: 'About 1 to 3 meters away.' },
-      { label: 'far', description: 'More than about 3 meters away, or none visible.' },
+      { label: 'far', description: 'More than about 3 meters away, or nothing in the path.' },
+    ],
+  },
+  {
+    type: 'predicate',
+    name: 'left_open',
+    instructions: 'Is there open, walkable floor just to the LEFT of the walking path that a person could step into?',
+  },
+  {
+    type: 'predicate',
+    name: 'right_open',
+    instructions: 'Is there open, walkable floor just to the RIGHT of the walking path that a person could step into?',
+  },
+  {
+    type: 'choice',
+    name: 'steer',
+    instructions: 'Which way should the person go to keep walking forward without bumping into anything?',
+    choices: [
+      { value: 'straight', description: 'Keep going straight; the path ahead is clear.' },
+      { value: 'veer_left', description: 'Step slightly left to get around something in the path.' },
+      { value: 'veer_right', description: 'Step slightly right to get around something in the path.' },
+      { value: 'turn_left', description: 'The way ahead is blocked; turn left to look for another path.' },
+      { value: 'turn_right', description: 'The way ahead is blocked; turn right to look for another path.' },
     ],
   },
   {
     type: 'choice',
     name: 'people_in_path',
-    instructions: 'How many people are in or right next to the walking path within about 4 meters?',
+    instructions: 'How many people are standing still inside THE WALKING PATH? Ignore people walking through.',
     choices: [
-      { value: 'none', description: 'No people in or next to the path.' },
-      { value: 'single', description: 'One person, for example someone walking past.' },
-      { value: 'group', description: 'Two to five people close together, such as a group chatting or a short queue.' },
+      { value: 'none', description: 'Nobody standing in the path.' },
+      { value: 'single', description: 'One person standing in the path.' },
+      { value: 'group', description: 'Two to five people standing together in the path.' },
       { value: 'crowd', description: 'A dense crowd filling the path.' },
-    ],
-  },
-  {
-    type: 'predicate',
-    name: 'people_stationary',
-    instructions:
-      'Do the people in or near the walking path appear to be standing in place (talking, queuing, gathered)? ' +
-      'For one person, look for a standing posture with planted feet. If they appear to be walking or their posture is unclear, answer false.',
-  },
-  {
-    type: 'choice',
-    name: 'people_direction',
-    instructions: 'Where are the people in or near the walking path?',
-    choices: DIRECTION_CHOICES,
-  },
-  {
-    type: 'predicate',
-    name: 'single_person_close',
-    instructions:
-      'If exactly one person is in or beside the walking path, are they within roughly one meter of the walker? ' +
-      'Judge distance to the person, using their position on the floor. Answer false if unsure.',
-  },
-  {
-    type: 'choice',
-    name: 'open_side',
-    instructions:
-      'When an obstacle blocks the path ahead, look for the nearest visible opening around its left or right edge. ' +
-      'Look for a continuous strip of visible floor, roughly body-width, from the foreground past the obstacle. ' +
-      'Account for chair legs, table edges, bags, partitions, and people in the approach. ' +
-      'Prefer the opening that needs less sideways movement. Ignore open floor that cannot be reached from here in view. ' +
-      'Choose unclear when the floor or route around the obstacle is obscured.',
-    choices: [
-      { value: 'left', description: 'The closest visible opening around the obstacle is on the walker’s left.' },
-      { value: 'right', description: 'The closest visible opening around the obstacle is on the walker’s right.' },
-      { value: 'either', description: 'The openings look about equally close, or there is no obstacle to go around.' },
-      { value: 'neither', description: 'The approach and both sides are visible and both sides appear blocked.' },
-      { value: 'unclear', description: 'There is not enough visible floor to judge an opening.' },
     ],
   },
 ];
@@ -147,27 +150,50 @@ export function buildVisionRequest(imageDataUrl: string): DecisionsRequest {
   };
 }
 
-/** Thresholds are deliberately conservative: when unsure, say so. */
+/** Conservative thresholds: when unsure, say so rather than guess. */
 export const THRESHOLDS = {
-  usable: 0.6,
-  fixedYes: 0.6,
-  fixedNo: 0.2,
+  usable: 0.5,
+  facingWall: 0.6,
+  // Tuned on frames from Daniel's walk-through: a trash can mid-path scored 0.38.
+  pathClear: 0.6,
+  pathBlocked: 0.45,
   choiceConfidence: 0.4,
-  stationary: 0.5,
-  singlePersonConfidence: 0.65,
-  /** A spoken detour hint needs more certainty than a displayed one. */
-  sideHintConfidence: 0.6,
+  /** Naming only (never decides blocked/steer): a trash can mid-path was named at 0.38. */
+  nameConfidence: 0.3,
+  sideOpen: 0.5,
 };
 
-const KIND_PHRASE: Record<string, string> = {
-  table: 'Table',
-  chair: 'Chair',
-  furniture: 'Furniture',
+export const LABEL_PHRASE: Record<string, string> = {
+  table_or_counter: 'Table or counter',
+  chair_or_bench: 'Chair',
+  backpack_or_bag: 'Bag on the floor',
+  trash_can: 'Trash can',
+  column_or_pillar: 'Column',
+  wall_or_door: 'Wall or door',
   step_or_stairs: 'Step or stairs',
-  column_or_wall: 'Column or wall',
   sign_or_barrier: 'Sign or barrier',
-  object_on_floor: 'Object on the floor',
+  plant_or_decor: 'Planter or display',
+  cable_or_small_object: 'Object on the floor',
+  person_standing: 'Person standing',
+  group_of_people: 'Group of people',
   other: 'Obstacle',
+};
+
+const STEER_PHRASE: Record<Steer, string> = {
+  straight: 'Path ahead looks clear.',
+  veer_left: 'Veer left.',
+  veer_right: 'Veer right.',
+  turn_left: 'Turn left to find a path.',
+  turn_right: 'Turn right to find a path.',
+  turn_either: 'Turn left or right to find a path.',
+  unclear: '',
+};
+
+const POSITION_PHRASE: Record<PathPosition, string> = {
+  left_part: 'on the left of your path',
+  center: 'ahead',
+  right_part: 'on the right of your path',
+  unclear: 'in your path',
 };
 
 function find<T extends DecisionAnswer['type']>(answers: DecisionAnswer[], name: string, type: T) {
@@ -179,145 +205,173 @@ function confidentChoice(answers: DecisionAnswer[], name: string): string | null
   return a && a.confidence >= THRESHOLDS.choiceConfidence ? a.choice : null;
 }
 
-function direction(answers: DecisionAnswer[], name: string): Direction {
-  const c = confidentChoice(answers, name);
-  return c === 'left' || c === 'slight_left' || c === 'ahead' || c === 'slight_right' || c === 'right'
-    ? c
-    : 'unclear';
+function prob(answers: DecisionAnswer[], name: string): number | null {
+  return find(answers, name, 'predicate')?.probability ?? null;
 }
 
-function proximity(answers: DecisionAnswer[], name: string): Proximity {
-  const a = find(answers, name, 'score');
+function proximity(answers: DecisionAnswer[]): Proximity {
+  const a = find(answers, 'blocker_distance', 'score');
   if (!a || a.confidence < THRESHOLDS.choiceConfidence) return 'unclear';
   // score is the expected level index (0=near, 1=mid, 2=far).
   return a.score < 0.67 ? 'near' : a.score < 1.5 ? 'mid' : 'far';
 }
 
-function where(d: Direction): string {
-  if (d === 'slight_left') return 'slightly left';
-  if (d === 'slight_right') return 'slightly right';
-  return d === 'ahead' ? 'ahead' : d === 'unclear' ? 'nearby' : `on the ${d}`;
-}
-
 function howFar(p: Proximity): string {
-  return p === 'near' ? ', close' : '';
+  return p === 'near' ? ', close' : p === 'mid' ? ', a few steps away' : '';
 }
 
 /**
- * Route hint for something in the path. Never says "safe". Suppressed when the
- * model isn't sure, or when it would point toward another detected obstacle.
+ * Decide which way to go. The model's own `steer` answer is used when it's
+ * confident and consistent with the open-floor answers; otherwise we derive it
+ * from where the obstacle sits and which side is open.
  */
-function sideHint(openSide: OpenSide, confidence: number, inPath: boolean, hazards: VisionHazard[]): string {
-  if (!inPath || confidence < THRESHOLDS.sideHintConfidence) return '';
-  if (hazards.some((h) => h.direction === openSide || h.direction === `slight_${openSide}`)) return '';
-  if (openSide === 'left' || openSide === 'right') return ` Opening on the ${openSide}.`;
-  if (openSide === 'neither') return ' Ahead may be blocked.';
-  return '';
+export function resolveSteer(opts: {
+  modelSteer: string | null;
+  blocked: boolean;
+  facingWall: boolean;
+  position: PathPosition;
+  leftOpen: number | null;
+  rightOpen: number | null;
+}): Steer {
+  const left = (opts.leftOpen ?? 0) >= THRESHOLDS.sideOpen;
+  const right = (opts.rightOpen ?? 0) >= THRESHOLDS.sideOpen;
+  const better = (): 'left' | 'right' | null =>
+    left && !right
+      ? 'left'
+      : right && !left
+        ? 'right'
+        : left && right
+          ? (opts.leftOpen ?? 0) >= (opts.rightOpen ?? 0)
+            ? 'left'
+            : 'right'
+          : null;
+  const modelSide = (): 'left' | 'right' | null =>
+    opts.modelSteer === 'turn_left' || opts.modelSteer === 'veer_left'
+      ? 'left'
+      : opts.modelSteer === 'turn_right' || opts.modelSteer === 'veer_right'
+        ? 'right'
+        : null;
+
+  if (opts.facingWall) {
+    const side = better() ?? modelSide();
+    return side ? `turn_${side}` : 'turn_either';
+  }
+  if (!opts.blocked) return 'straight';
+
+  const m = opts.modelSteer;
+  if (m === 'veer_left' && (left || opts.leftOpen === null)) return 'veer_left';
+  if (m === 'veer_right' && (right || opts.rightOpen === null)) return 'veer_right';
+  if (m === 'turn_left' || m === 'turn_right') return m;
+
+  // Derive: go around on the side away from the obstacle, if that side is open.
+  if (opts.position === 'left_part' && right) return 'veer_right';
+  if (opts.position === 'right_part' && left) return 'veer_left';
+  const side = better();
+  if (side) return `veer_${side}`;
+  return 'turn_either';
 }
 
 export function mapVisionAnswers(answers: DecisionAnswer[], frameSeq: number, now = Date.now()): VisionAssessment {
-  const usable = find(answers, 'image_usable', 'predicate');
-  const fixed = find(answers, 'fixed_obstacle_in_path', 'predicate');
-  if (!usable || !fixed) return { state: 'unknown', frameSeq, reason: 'Incomplete answer from the AI service.' };
-  if (usable.probability < THRESHOLDS.usable) {
-    return { state: 'unknown', frameSeq, reason: 'Camera view unclear. Hold the phone upright, facing ahead.' };
+  const usable = prob(answers, 'image_usable');
+  const clear = prob(answers, 'path_clear');
+  if (usable === null || clear === null) {
+    return { state: 'unknown', frameSeq, reason: 'Incomplete answer from the AI service.' };
   }
+  const facingWall = (prob(answers, 'facing_wall') ?? 0) >= THRESHOLDS.facingWall;
+  // A wall filling the view is a real answer, not an unusable frame.
+  if (usable < THRESHOLDS.usable && !facingWall) {
+    return { state: 'unknown', frameSeq, reason: 'Camera view unclear. Point the phone forward at chest height.' };
+  }
+
+  const leftOpen = prob(answers, 'left_open');
+  const rightOpen = prob(answers, 'right_open');
+  const openSide: OpenSide =
+    leftOpen === null || rightOpen === null
+      ? 'unclear'
+      : leftOpen >= THRESHOLDS.sideOpen && rightOpen >= THRESHOLDS.sideOpen
+        ? 'either'
+        : leftOpen >= THRESHOLDS.sideOpen
+          ? 'left'
+          : rightOpen >= THRESHOLDS.sideOpen
+            ? 'right'
+            : 'neither';
 
   const peopleChoice = confidentChoice(answers, 'people_in_path');
   const people: PeopleInPath =
     peopleChoice === 'none' || peopleChoice === 'single' || peopleChoice === 'group' || peopleChoice === 'crowd'
       ? peopleChoice
       : 'unclear';
-  const sideChoice = confidentChoice(answers, 'open_side');
-  const openSide: OpenSide =
-    sideChoice === 'left' || sideChoice === 'right' || sideChoice === 'either' || sideChoice === 'neither'
-      ? sideChoice
-      : 'unclear';
-  const stationary = find(answers, 'people_stationary', 'predicate');
-  const peopleDirection = direction(answers, 'people_direction');
-  let standingPerson: 'in_front' | 'close_ahead' | undefined;
-  if (people === 'single' && (stationary?.probability ?? 0) >= THRESHOLDS.singlePersonConfidence) {
-    const close = find(answers, 'single_person_close', 'predicate');
-    if (peopleDirection === 'ahead' || peopleDirection === 'slight_left' || peopleDirection === 'slight_right') {
-      standingPerson = peopleDirection === 'ahead' && (close?.probability ?? 0) >= THRESHOLDS.singlePersonConfidence
-        ? 'close_ahead'
-        : 'in_front';
-    }
+
+  const kindAnswer = find(answers, 'blocker_kind', 'choice');
+  const kindChoice = kindAnswer && kindAnswer.confidence >= THRESHOLDS.nameConfidence ? kindAnswer.choice : null;
+  const posChoice = confidentChoice(answers, 'blocker_position');
+  const position: PathPosition =
+    posChoice === 'left_part' || posChoice === 'center' || posChoice === 'right_part' ? posChoice : 'unclear';
+
+  const blocked = facingWall || clear <= THRESHOLDS.pathBlocked;
+  if (!blocked && clear < THRESHOLDS.pathClear) {
+    return { state: 'unknown', frameSeq, reason: 'Not sure about the path ahead.' };
   }
 
-  const hazards: VisionHazard[] = [];
+  const steer = resolveSteer({
+    modelSteer: confidentChoice(answers, 'steer'),
+    blocked,
+    facingWall,
+    position,
+    leftOpen,
+    rightOpen,
+  });
 
-  // 1. Fixed obstacles.
-  const fixedKind = confidentChoice(answers, 'fixed_obstacle_kind');
-  const fixedDirection = direction(answers, 'fixed_obstacle_direction');
-  const fixedProximity = proximity(answers, 'fixed_obstacle_distance');
-  const nearAlongside = fixedKind && fixedKind !== 'none' && fixedProximity === 'near' &&
-    (fixedDirection === 'left' || fixedDirection === 'right');
-  let fixedHazard: VisionHazard | null = null;
-  if (fixed.probability >= THRESHOLDS.fixedYes || nearAlongside) {
-    fixedHazard = {
-      kind: 'fixed',
-      label: fixedKind && fixedKind !== 'none' ? fixedKind : 'other',
-      direction: fixedDirection,
-      proximity: fixedProximity,
-    };
-    hazards.push(fixedHazard);
+  const base = { state: 'ok' as const, frameSeq, assessedAt: now, people, openSide, steer, facingWall };
+
+  if (!blocked) {
+    return { ...base, spokenSummary: STEER_PHRASE.straight, hazards: [], clearOfVisibleObstacles: true, alertKey: 'clear' };
   }
 
-  // 2. Groups of people worth going around (never a single passer-by).
-  let peopleHazard: VisionHazard | null = null;
-  if (people === 'group' || people === 'crowd') {
-    // A group walking through clears itself; only flag it if it's standing in the way (or it's a crowd).
-    if (people === 'crowd' || !stationary || stationary.probability >= THRESHOLDS.stationary) {
-      peopleHazard = { kind: 'people', label: people, direction: peopleDirection, proximity: 'unclear' };
-      hazards.push(peopleHazard);
-    }
-  }
+  const label = facingWall
+    ? 'wall_or_door'
+    : kindChoice && kindChoice !== 'none'
+      ? kindChoice
+      : people === 'group' || people === 'crowd'
+        ? 'group_of_people'
+        : 'other';
+  const isPeople = label === 'person_standing' || label === 'group_of_people';
+  const hazardPosition: PathPosition = facingWall ? 'center' : position;
+  const hazard: VisionHazard = {
+    kind: isPeople ? 'people' : 'fixed',
+    label,
+    direction:
+      hazardPosition === 'left_part'
+        ? 'slight_left'
+        : hazardPosition === 'right_part'
+          ? 'slight_right'
+          : hazardPosition === 'center'
+            ? 'ahead'
+            : 'unclear',
+    proximity: facingWall ? 'near' : proximity(answers),
+    position: hazardPosition,
+  };
 
-  // Pick what to say. A fixed obstacle IN the path and not far wins; otherwise a
-  // group in the way; otherwise any other fixed obstacle (e.g. off to one side).
-  const inPath = (h: VisionHazard) => h.direction !== 'left' && h.direction !== 'right';
-  const fixedUrgent =
-    fixedHazard && inPath(fixedHazard) && (fixedHazard.proximity === 'near' || fixedHazard.proximity === 'mid');
-  const lead = fixedUrgent ? fixedHazard : (peopleHazard ?? fixedHazard);
+  // Direction first, then what and where: "Veer right. Bag on the floor on the left of your path, close."
+  const what = facingWall
+    ? 'Wall or door ahead.'
+    : `${LABEL_PHRASE[label] ?? 'Obstacle'} ${POSITION_PHRASE[hazardPosition]}${howFar(hazard.proximity)}.`;
+  const spokenSummary = steer === 'unclear' ? what : `${STEER_PHRASE[steer]} ${what}`;
 
-  if (lead) {
-    const describeFixed = (h: VisionHazard) =>
-      `${KIND_PHRASE[h.label] ?? 'Obstacle'} ${where(h.direction)}${howFar(h.proximity)}.`;
-    const what =
-      lead.kind === 'fixed'
-        ? describeFixed(lead)
-        : `${lead.label === 'crowd' ? 'Crowd' : 'Group of people'} ${where(lead.direction)}.`;
-    // When people lead, still mention a fixed obstacle so the detour hint makes sense.
-    const also = lead.kind === 'people' && fixedHazard ? ` ${describeFixed(fixedHazard)}` : '';
-    const hint = sideHint(openSide, find(answers, 'open_side', 'choice')?.confidence ?? 0, inPath(lead), hazards);
-    return {
-      state: 'ok',
-      frameSeq,
-      assessedAt: now,
-      spokenSummary: `${what}${also}${hint}`,
-      hazards,
-      people,
-      standingPerson,
-      openSide,
-      clearOfVisibleObstacles: false,
-      alertKey: `${lead.kind}:${lead.label}:${lead.direction}${hint ? `:opening:${openSide}` : ''}`,
-    };
-  }
-
-  if (fixed.probability <= THRESHOLDS.fixedNo) {
-    return {
-      state: 'ok',
-      frameSeq,
-      assessedAt: now,
-      spokenSummary: 'No fixed obstacles detected in view.',
-      hazards,
-      people,
-      standingPerson,
-      openSide,
-      clearOfVisibleObstacles: true,
-      alertKey: 'clear',
-    };
-  }
-  return { state: 'unknown', frameSeq, reason: 'Not sure about the path ahead.' };
+  return {
+    ...base,
+    spokenSummary,
+    hazards: [hazard],
+    // A single person standing still is confirmed over two fresh frames on the phone.
+    standingPerson: label === 'person_standing' ? (hazard.proximity === 'near' ? 'close_ahead' : 'in_front') : undefined,
+    clearOfVisibleObstacles: false,
+    alertKey: `${hazard.kind}:${label}:${hazardPosition}:${steer}`,
+  };
 }
+
+/** Instructions for describing an obstacle that has stayed in view (Responses API, image input). */
+export const DESCRIBE_INSTRUCTIONS =
+  'You help a blind person who has stopped in front of something while walking through a conference venue. ' +
+  'In at most 14 words, say what the main obstacle in the middle of the photo is and where it is ' +
+  '(for example "A backpack on the floor ahead, slightly right of center."). ' +
+  'Plain words, no preamble, never say it is safe to proceed.';

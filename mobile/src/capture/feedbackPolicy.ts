@@ -3,18 +3,20 @@
  * with node --test).
  *
  * - Results for frames older than the freshness budget are stale: never spoken.
- * - Hazards (fixed obstacles, groups): spoken when WHAT is announced changes
- *   (`alertKey`, e.g. "fixed:table:ahead"), then repeated every other fresh
- *   assessment of that hazard.
- * - "No fixed obstacles detected in view": only on the transition from a
- *   hazard (or the first result), so it never becomes a reassuring drone.
- * - A lone standing person must appear in consecutive fresh assessments and
- *   be close and directly ahead before being announced.
+ * - Blocked path (obstacle, wall, group): the server's phrase leads with the
+ *   direction ("Veer right. ..."). Spoken when WHAT or WHICH WAY changes
+ *   (`alertKey` includes the steer), then repeated every other fresh
+ *   assessment while it persists.
+ * - "Path ahead looks clear": only at the start or on the transition from a
+ *   blocked path, so it never becomes a reassuring drone.
+ * - A lone standing person must be close, directly ahead and seen in two
+ *   consecutive fresh assessments before being announced; further away, never.
  * - Unknown / errors: rate-limited, so problems are reported without nagging.
  */
 import type { VisionAssessment, VisionStaleAfterMs } from '../../../shared/contracts';
 
-export const VISION_STALE_AFTER_MS: VisionStaleAfterMs = 3000;
+// 4 s: measured capture-to-result times on a real walk were 2.0-4.8 s.
+export const VISION_STALE_AFTER_MS: VisionStaleAfterMs = 4000;
 export const REPEAT_UNKNOWN_MS = 10_000;
 export const REPEAT_PROBLEM_MS = 20_000;
 
@@ -38,27 +40,25 @@ export class FeedbackPolicy {
       if (result.standingPerson) {
         this.lastStandingPerson = { seq: result.frameSeq, capturedAt: frameCapturedAt };
       }
-      const personCloseAhead =
-        result.standingPerson === 'close_ahead' &&
-        previousPerson !== null &&
-        result.frameSeq > previousPerson.seq &&
-        frameCapturedAt > previousPerson.capturedAt &&
-        frameCapturedAt - previousPerson.capturedAt <= VISION_STALE_AFTER_MS;
-      let key = result.alertKey;
-      let phrase = result.spokenSummary;
-      if (personCloseAhead) {
-        key = result.clearOfVisibleObstacles ? 'person:ahead:close' : `person:ahead:close|${key}`;
-        phrase = result.clearOfVisibleObstacles ? 'Person ahead, close.' : `Person ahead, close. ${phrase}`;
+      if (result.standingPerson === 'in_front') return null; // a person further away: never announced
+      if (result.standingPerson === 'close_ahead') {
+        const confirmed =
+          previousPerson !== null &&
+          result.frameSeq > previousPerson.seq &&
+          frameCapturedAt > previousPerson.capturedAt &&
+          frameCapturedAt - previousPerson.capturedAt <= VISION_STALE_AFTER_MS;
+        if (!confirmed) return null;
       }
+      const key = result.alertKey;
       if (key === null) return null;
-      if (result.clearOfVisibleObstacles && !personCloseAhead) {
+      if (result.clearOfVisibleObstacles) {
         const transition = this.lastKind === null || this.lastKind === 'hazard';
-        return this.emit('clear', key, phrase, now, transition);
+        return this.emit('clear', key, result.spokenSummary, now, transition);
       }
       const changed = this.lastKind !== 'hazard' || this.lastKey !== key;
       const speak = changed || this.skippedHazardFrame;
       this.skippedHazardFrame = !speak;
-      return this.emit('hazard', key, phrase, now, speak);
+      return this.emit('hazard', key, result.spokenSummary, now, speak);
     }
     if (result.state === 'unknown') {
       const due = now - (this.lastSpokenAt.get('unknown') ?? -Infinity) >= REPEAT_UNKNOWN_MS;

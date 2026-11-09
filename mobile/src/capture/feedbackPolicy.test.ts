@@ -1,56 +1,80 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { VisionAssessment } from '../../../shared/contracts.ts';
+import type { Steer, VisionAssessment } from '../../../shared/contracts.ts';
 import { FeedbackPolicy } from './feedbackPolicy.ts';
 
-const hazard = (summary: string, key = `fixed:${summary}`): VisionAssessment => ({
+let seq = 0;
+const blocked = (summary: string, key: string, steer: Steer = 'veer_right', over: Partial<Extract<VisionAssessment, { state: 'ok' }>> = {}): VisionAssessment => ({
   state: 'ok',
-  frameSeq: 1,
+  frameSeq: ++seq,
   assessedAt: 0,
   spokenSummary: summary,
-  hazards: [{ kind: 'fixed', label: 'furniture', direction: 'ahead', proximity: 'near' }],
+  hazards: [{ kind: 'fixed', label: 'table_or_counter', direction: 'ahead', proximity: 'near', position: 'center' }],
   people: 'none',
   openSide: 'right',
+  steer,
+  facingWall: false,
   clearOfVisibleObstacles: false,
   alertKey: key,
+  ...over,
 });
-const clear: VisionAssessment = {
+const clear = (): VisionAssessment => ({
   state: 'ok',
-  frameSeq: 1,
+  frameSeq: ++seq,
   assessedAt: 0,
-  spokenSummary: 'No fixed obstacles detected in view.',
+  spokenSummary: 'Path ahead looks clear.',
   hazards: [],
-  people: 'single',
+  people: 'none',
   openSide: 'either',
+  steer: 'straight',
+  facingWall: false,
   clearOfVisibleObstacles: true,
   alertKey: 'clear',
-};
-
-test('stale results are never spoken', () => {
-  const p = new FeedbackPolicy();
-  assert.equal(p.decide(hazard('Person ahead, close.'), 0, 3500), null);
 });
 
-test('hazards repeat every other fresh assessment and speak immediately on position change', () => {
+test('results older than the 4 s budget are never spoken', () => {
   const p = new FeedbackPolicy();
-  const ahead = hazard('Table ahead, close.', 'fixed:table:ahead');
-  const right = hazard('Table slightly right, close.', 'fixed:table:slight_right');
-  assert.equal(p.decide(ahead, 1000, 1500), 'Table ahead, close.');
-  assert.equal(p.decide(ahead, 2000, 2500), null);
-  assert.equal(p.decide(ahead, 3000, 3500), 'Table ahead, close.');
-  assert.equal(p.decide(right, 4000, 4500), 'Table slightly right, close.');
-  assert.equal(p.decide(right, 5000, 8500), null);
-  assert.equal(p.decide(right, 9000, 9500), null);
-  assert.equal(p.decide(right, 10000, 10500), 'Table slightly right, close.');
+  assert.equal(p.decide(blocked('Veer right. Table ahead.', 'k'), 0, 4500), null);
+  assert.equal(p.decide(blocked('Veer right. Table ahead.', 'k'), 0, 3900), 'Veer right. Table ahead.');
 });
 
-test('"no fixed obstacles detected" is spoken only on the transition from a hazard', () => {
+test('a blocked path repeats every other fresh assessment; a new steer speaks at once', () => {
   const p = new FeedbackPolicy();
-  assert.equal(p.decide(clear, 0, 100), 'No fixed obstacles detected in view.'); // first result
-  assert.equal(p.decide(clear, 1000, 1100), null);
-  assert.equal(p.decide(clear, 2000, 2100), null);
-  assert.equal(p.decide(hazard('Person ahead.'), 3000, 3100), 'Person ahead.');
-  assert.equal(p.decide(clear, 4000, 4100), 'No fixed obstacles detected in view.');
+  const right = 'Veer right. Table or counter ahead, close.';
+  const left = 'Veer left. Table or counter ahead, close.';
+  assert.equal(p.decide(blocked(right, 'fixed:table:center:veer_right'), 1000, 1500), right);
+  assert.equal(p.decide(blocked(right, 'fixed:table:center:veer_right'), 2000, 2500), null);
+  assert.equal(p.decide(blocked(right, 'fixed:table:center:veer_right'), 3000, 3500), right);
+  assert.equal(p.decide(blocked(left, 'fixed:table:center:veer_left', 'veer_left'), 4000, 4500), left);
+});
+
+test('"Path ahead looks clear" only at the start and after a blocked path', () => {
+  const p = new FeedbackPolicy();
+  assert.equal(p.decide(clear(), 0, 100), 'Path ahead looks clear.');
+  assert.equal(p.decide(clear(), 1000, 1100), null);
+  assert.equal(p.decide(blocked('Veer left. Chair ahead.', 'fixed:chair:center:veer_left', 'veer_left'), 2000, 2100), 'Veer left. Chair ahead.');
+  assert.equal(p.decide(clear(), 3000, 3100), 'Path ahead looks clear.');
+});
+
+test('facing a wall is spoken like any blocked path', () => {
+  const p = new FeedbackPolicy();
+  const wall = blocked('Turn left to find a path. Wall or door ahead.', 'fixed:wall_or_door:center:turn_left', 'turn_left', { facingWall: true });
+  assert.equal(p.decide(wall, 0, 500), 'Turn left to find a path. Wall or door ahead.');
+});
+
+test('a close standing person needs two consecutive fresh frames; a far one is never spoken', () => {
+  const p = new FeedbackPolicy();
+  const person = (_n: number) =>
+    blocked('Veer left. Person standing ahead, close.', 'people:person_standing:center:veer_left', 'veer_left', {
+      standingPerson: 'close_ahead',
+    });
+  assert.equal(p.decide(person(0), 1000, 1500), null);
+  assert.equal(p.decide(person(1), 2000, 2500), 'Veer left. Person standing ahead, close.');
+  const far = new FeedbackPolicy();
+  const inFront = () =>
+    blocked('Veer left. Person standing ahead.', 'people:person_standing:center:veer_left', 'veer_left', { standingPerson: 'in_front' });
+  assert.equal(far.decide(inFront(), 1000, 1500), null);
+  assert.equal(far.decide(inFront(), 2000, 2500), null);
 });
 
 test('errors are reported but rate-limited', () => {
@@ -58,37 +82,4 @@ test('errors are reported but rate-limited', () => {
   const err: VisionAssessment = { state: 'error', frameSeq: 1, message: 'x' };
   assert.match(p.decide(err, 0, 10) ?? '', /unavailable/);
   assert.equal(p.decide(err, 1000, 1010), null);
-});
-
-test('wording-only changes for the same obstacle are not re-announced', () => {
-  const p = new FeedbackPolicy();
-  assert.equal(p.decide(hazard('Furniture ahead. More room on the right.', 'fixed:furniture:ahead'), 0, 100), 'Furniture ahead. More room on the right.');
-  assert.equal(p.decide(hazard('Furniture ahead. More room on the left.', 'fixed:furniture:ahead'), 1000, 1100), null);
-  assert.equal(p.decide(hazard('Group of people ahead.', 'people:group:ahead'), 2000, 2100), 'Group of people ahead.');
-});
-
-test('a changed opening is announced on the next fresh assessment', () => {
-  const p = new FeedbackPolicy();
-  const left = 'Table ahead. Opening on the left.';
-  const right = 'Table ahead. Opening on the right.';
-  assert.equal(p.decide(hazard(left, 'fixed:table:ahead:opening:left'), 1000, 1100), left);
-  assert.equal(p.decide(hazard(right, 'fixed:table:ahead:opening:right'), 2000, 2100), right);
-});
-
-test('a person is announced once confirmed in successive fresh views and close ahead', () => {
-  const p = new FeedbackPolicy();
-  const view = (seq: number, standingPerson: 'in_front' | 'close_ahead' | undefined) => ({
-    ...clear,
-    frameSeq: seq,
-    people: 'single' as const,
-    standingPerson,
-  });
-  assert.equal(p.decide(view(1, 'close_ahead'), 1000, 1100), clear.spokenSummary);
-  assert.equal(p.decide(view(2, undefined), 2000, 2100), null);
-  assert.equal(p.decide(view(3, 'in_front'), 3000, 6100), null);
-  assert.equal(p.decide(view(4, 'close_ahead'), 4000, 6200), null);
-  assert.equal(p.decide(view(5, 'in_front'), 5000, 6300), null);
-  assert.equal(p.decide(view(6, 'close_ahead'), 6000, 6400), 'Person ahead, close.');
-  assert.equal(p.decide(view(7, 'close_ahead'), 7000, 7100), null);
-  assert.equal(p.decide(view(8, 'close_ahead'), 8000, 8100), 'Person ahead, close.');
 });

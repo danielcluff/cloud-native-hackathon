@@ -1,5 +1,5 @@
 import { File as ExpoFile } from 'expo-file-system';
-import type { FrameMeta, VisionAssessment, VoiceTurnResult } from '../../shared/contracts';
+import type { FrameMeta, ObstacleDescription, VisionAssessment, VoiceTurnResult } from '../../shared/contracts';
 import { authHeaders } from './auth';
 import { BACKEND_URL } from './config';
 
@@ -65,6 +65,24 @@ export async function assessFrame(frame: { uri: string; meta: FrameMeta }, signa
   form.append('seq', String(frame.meta.seq));
   try {
     return await postForm<VisionAssessment>('/v1/vision/assess', form, 5000, signal);
+  } catch (e) {
+    if (signal.aborted) throw e;
+    return { state: 'error', frameSeq: frame.meta.seq, message: 'Could not reach the backend.' };
+  }
+}
+
+/** One-off description of an obstacle that has stayed in the path (slower; called rarely). */
+export async function describeFrame(frame: { uri: string; meta: FrameMeta }, signal: AbortSignal): Promise<ObstacleDescription> {
+  if (!BACKEND_URL) return { state: 'unavailable', reason: 'Backend URL is not configured.' };
+  const form = new FormData();
+  try {
+    form.append('frame', filePart(frame.uri));
+  } catch {
+    return { state: 'error', frameSeq: frame.meta.seq, message: 'The camera frame could not be read.' };
+  }
+  form.append('seq', String(frame.meta.seq));
+  try {
+    return await postForm<ObstacleDescription>('/v1/vision/describe', form, 8000, signal);
   } catch (e) {
     if (signal.aborted) throw e;
     return { state: 'error', frameSeq: frame.meta.seq, message: 'Could not reach the backend.' };

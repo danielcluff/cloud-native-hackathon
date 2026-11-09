@@ -59,21 +59,35 @@ export type Proximity = 'near' | 'mid' | 'far' | 'unclear';
  */
 export type PeopleInPath = 'none' | 'single' | 'group' | 'crowd' | 'unclear';
 
-/** Side with the closest visible opening around an obstacle. */
+/** Side with walkable open floor next to the walking path. */
 export type OpenSide = 'left' | 'right' | 'either' | 'neither' | 'unclear';
 
+/**
+ * Which way to go. The walking path is the CENTER of the camera view.
+ * - straight: the path ahead looks clear
+ * - veer_*: something is in the path; a small sidestep that way gets around it
+ * - turn_*: the path is blocked (or the camera faces a wall); rotate that way to look for a path
+ * - turn_either: blocked and neither side looks better; rotate to look for a path
+ */
+export type Steer = 'straight' | 'veer_left' | 'veer_right' | 'turn_left' | 'turn_right' | 'turn_either' | 'unclear';
+
+/** Where an obstacle sits inside the walking path (the center band of the view). */
+export type PathPosition = 'left_part' | 'center' | 'right_part' | 'unclear';
+
 export interface VisionHazard {
-  /** 'fixed' = won't move (furniture, column, step...); 'people' = a group or crowd. */
+  /** 'fixed' = won't move (furniture, column, wall...); 'people' = someone standing, a group or crowd. */
   kind: 'fixed' | 'people';
-  /** e.g. 'furniture', 'step_or_stairs', 'group'. */
+  /** Specific label, e.g. 'backpack_or_bag', 'table_or_counter', 'wall_or_door', 'group_of_people'. */
   label: string;
   direction: Direction;
   proximity: Proximity;
+  /** Position within the walking path. */
+  position?: PathPosition;
 }
 
 /**
  * Result of a visible-obstacle assessment. A result NEVER proves a path is safe;
- * `clearOfVisibleObstacles` only means no fixed obstacle or group was detected
+ * `clearOfVisibleObstacles` only means nothing was detected in the walking path
  * in this frame.
  */
 export type VisionAssessment =
@@ -86,29 +100,39 @@ export type VisionAssessment =
       state: 'ok';
       frameSeq: number;
       assessedAt: number;
-      /** Short phrase for speech, e.g. "Table ahead, close. More room on the right." */
+      /** Short phrase for speech, direction first, e.g. "Veer right. Backpack on the left of your path, close." */
       spokenSummary: string;
-      /** Fixed obstacles first, then groups; single passers-by are not hazards. */
+      /** Things IN the walking path, most important first. Things beside the path are not hazards. */
       hazards: VisionHazard[];
       people: PeopleInPath;
-      /** A possibly stationary person in front, to confirm across fresh frames on the phone. */
+      /** A single person standing in the path: the phone confirms it across two fresh frames before speaking. */
       standingPerson?: 'in_front' | 'close_ahead';
       openSide: OpenSide;
+      /** Which way to go. */
+      steer: Steer;
+      /** The camera faces a wall, door or large surface at close range. */
+      facingWall: boolean;
       clearOfVisibleObstacles: boolean;
       /**
-       * Stable identity of what's being announced, including any opening cue,
-       * so the app doesn't re-announce the same thing when only the wording
-       * changes. null when there is nothing to announce.
+       * Stable identity of what's being announced (obstacle, position and
+       * steer), so the app doesn't re-announce when only the wording changes.
+       * null when there is nothing to announce.
        */
       alertKey: string | null;
     };
 
+/** On-demand identification of an obstacle that has stayed in view. */
+export type ObstacleDescription =
+  | { state: 'ok'; frameSeq: number; description: string }
+  | { state: 'unavailable'; reason: string }
+  | { state: 'error'; frameSeq: number; message: string };
+
 /**
  * Freshness budget (ms): vision results older than this must be treated as
  * stale. Expressed as a type so this file stays type-only; consumers declare
- * `const VISION_STALE_AFTER_MS: VisionStaleAfterMs = 3000`.
+ * `const VISION_STALE_AFTER_MS: VisionStaleAfterMs = 4000`.
  */
-export type VisionStaleAfterMs = 3000;
+export type VisionStaleAfterMs = 4000;
 
 // ---------- Planner (interview + schedule + routes) ----------
 

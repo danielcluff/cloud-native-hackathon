@@ -13,7 +13,11 @@ export interface ServerConfig {
   /** Pairing token required on /v1/* when set. Never log this. */
   appAccessToken: string | null;
   /** Caps on paid AI calls (in-memory, per replica). */
-  limits: { vision: { perMinute: number; perDay: number }; voice: { perMinute: number; perDay: number } };
+  limits: {
+    vision: { perMinute: number; perDay: number };
+    voice: { perMinute: number; perDay: number };
+    describe: { perMinute: number; perDay: number };
+  };
   /** Model ids, overridable without a code change. Text model chosen by Daniel (faster/cheaper than gpt-6-astra). */
   models: { vision: string; transcribe: string; text: string };
   /** Reasoning effort for planning turns; 'low' measured 2.9-4.8s vs 6.8-7.5s default on gpt-6.1-sol. */
@@ -41,6 +45,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       // ~1 frame/s while Navigate is open, minus latency-driven drops.
       vision: { perMinute: int(env.LIMIT_VISION_PER_MINUTE, 70), perDay: int(env.LIMIT_VISION_PER_DAY, 3000) },
       voice: { perMinute: int(env.LIMIT_VOICE_PER_MINUTE, 10), perDay: int(env.LIMIT_VOICE_PER_DAY, 300) },
+      // Obstacle descriptions run only when the same obstacle stays in view.
+      describe: { perMinute: int(env.LIMIT_DESCRIBE_PER_MINUTE, 6), perDay: int(env.LIMIT_DESCRIBE_PER_DAY, 300) },
     },
     models: {
       vision: env.OPENAI_VISION_MODEL?.trim() || 'gpt-6-luna',

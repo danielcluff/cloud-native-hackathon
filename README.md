@@ -20,8 +20,9 @@ Flagship features:
    interests, recommends real sessions from the official schedule, accepts
    revisions, and plans routes through the day.
 2. **Foreground obstacle feedback.** About one camera frame per second goes to
-   OpenAI Decisions, which returns concise spoken feedback on fixed obstacles,
-    people standing in the way, and the nearest visible opening around an obstacle. Map routes and landmarks the user confirms set the direction.
+   OpenAI Decisions, which treats the center of the view as the walking path,
+   says whether it looks clear and, if not, which way to veer or turn. Map
+   routes and landmarks the user confirms set the overall direction.
    The app does not trust indoor GPS. A camera result never claims a path is safe.
 3. **Event-assistant request (simulated).** A request UI with a confirmed location and
    a clearly labelled fake ETA. It never messages real staff.
@@ -104,17 +105,29 @@ cd server && npm run typecheck && npm test
     overlap.
   - While **obstacle feedback** is on, each frame is uploaded and assessed by
     OpenAI Decisions, then deleted.
-  - It focuses on **fixed obstacles** (furniture, columns and walls, steps and
-    stairs, signs and barriers, objects on the floor) and **people standing in
-    the path**. A lone person must appear to be standing in consecutive fresh
-    assessments and be close and directly ahead before the app speaks.
-  - When something is in the path, the app calls out the **nearest visible
-    opening** around it when the approach is visible and the model is confident.
-  - Speech: short cues such as "Table slightly right, close" play immediately
-    when the obstacle or its direction changes, then every other fresh
-    assessment while it persists. "No fixed obstacles detected in view" can
-    play at startup or after a hazard clears. Stale results are never spoken.
-    It **never says a path is safe**.
+  - **The center of the view is your walking path.** Hold the phone at chest
+    height, pointing forward. Walls and furniture *beside* the path are ignored
+    (so walking down a corridor doesn't trigger cues).
+  - Every assessment answers **"is the path ahead clear?"** and, if not,
+    **which way to go**, direction first: *"Veer right. Bag on the floor on
+    the left of your path, close."*, or *"Turn left to find a path. Wall or
+    door ahead."* when the way is blocked or you're facing a wall (instead of
+    "camera unclear"). "Camera view unclear" is only for blur, darkness or a
+    covered lens.
+  - Obstacles get specific names (table or counter, chair, bag on the floor,
+    trash can, column, step or stairs, sign or barrier, planter…). If the
+    **same obstacle stays in view for 3 assessments** (you've stopped in front
+    of it), the app asks once for a short description: *"Looks like: a metal
+    trash can ahead, slightly right of center."*
+  - People walking through are ignored. A single person standing close and
+    directly ahead is announced only after two fresh frames; a group or crowd
+    in the path is announced like any obstacle.
+  - Speech: a cue is spoken when *what* is ahead or *which way to go* changes,
+    then repeated every other fresh assessment while it persists. "Path ahead
+    looks clear" is said at the start and after a blocked path clears. Results
+    older than 4 s are never spoken. It **never says a path is safe**.
+  - Photos are taken at the smallest size the camera offers that's at least
+    640 px, which keeps uploads and round trips short.
   - **Live directions (debug)** under the camera preview shows, as text, every
     cue the app produced: the latest in large type, then earlier lines with the
     time, frame number and round-trip latency. 🔊 marks lines that were

@@ -11,6 +11,8 @@ const ok = (over: Partial<Extract<VisionAssessment, { state: 'ok' }>> = {}): Vis
   hazards: [{ kind: 'fixed', label: 'table', direction: 'slight_right', proximity: 'near' }],
   people: 'none',
   openSide: 'left',
+  steer: 'veer_left',
+  facingWall: false,
   clearOfVisibleObstacles: false,
   alertKey: 'fixed:table:slight_right',
   ...over,
@@ -31,8 +33,8 @@ test('quiet entries still show what the camera saw, with the reason', () => {
     makeEntry(3, ok({ clearOfVisibleObstacles: true, hazards: [], alertKey: 'clear', spokenSummary: 'No fixed obstacles detected in view.' }), null, { seq: 5, capturedAt: 1000 }, 2000).note,
     'still clear, not repeated',
   );
-  const stale = makeEntry(4, ok(), null, { seq: 6, capturedAt: 1000 }, 4600);
-  assert.equal(stale.note, 'stale (3.6s old), not spoken');
+  const stale = makeEntry(4, ok(), null, { seq: 6, capturedAt: 1000 }, 5600);
+  assert.equal(stale.note, 'stale (4.6s old), not spoken');
   assert.equal(stale.text, 'Table slightly right, close.');
   const err = makeEntry(5, { state: 'error', frameSeq: 7, message: 'Could not reach the backend.' }, null, { seq: 7, capturedAt: 1000 }, 1500);
   assert.equal(err.text, 'Error: Could not reach the backend.');

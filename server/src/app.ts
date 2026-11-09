@@ -1,11 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { HealthResponse, VisionAssessment, VoiceTurnResult } from '../../shared/contracts.ts';
+import type { HealthResponse, ObstacleDescription, VisionAssessment, VoiceTurnResult } from '../../shared/contracts.ts';
 import type { ServerConfig } from './config.ts';
 import { tokenMatches, UsageCaps } from './guard.ts';
 import { Interviewer } from './interview.ts';
 import { createOpenAIClient, type OpenAIClient } from './openai.ts';
 import { createScheduleCatalog, type ScheduleCatalog } from './schedule.ts';
-import { buildVisionRequest, mapVisionAnswers } from './vision.ts';
+import { buildVisionRequest, DESCRIBE_INSTRUCTIONS, mapVisionAnswers } from './vision.ts';
 
 export const VERSION = '0.3.0';
 
@@ -118,7 +118,10 @@ export function createApp(config: ServerConfig, deps: AppDeps = {}): Server {
       return sendJson(res, 200, { state: 'ok' });
     }
 
-    const capKind = req.method === 'POST' ? ({ '/v1/vision/assess': 'vision', '/v1/voice/turn': 'voice' } as const)[path] : undefined;
+    const capKind =
+      req.method === 'POST'
+        ? ({ '/v1/vision/assess': 'vision', '/v1/voice/turn': 'voice', '/v1/vision/describe': 'describe' } as const)[path]
+        : undefined;
     if (capKind && ai) {
       const hit = caps.take(capKind);
       if (hit) {
@@ -151,6 +154,31 @@ export function createApp(config: ServerConfig, deps: AppDeps = {}): Server {
           state: 'error',
           frameSeq: seq,
           message: e instanceof Error ? e.message : 'Vision service failed.',
+        };
+        return sendJson(res, 502, body);
+      }
+    }
+
+    if (req.method === 'POST' && path === '/v1/vision/describe') {
+      if (!ai) {
+        const body: ObstacleDescription = { state: 'unavailable', reason: 'Server has no OpenAI API key configured.' };
+        return refuse(req, res, 503, body.reason);
+      }
+      const form = await readForm(req, MAX_FRAME_BYTES);
+      const frame = form.get('frame');
+      const seq = Number(form.get('seq') ?? 0);
+      if (!(frame instanceof Blob) || frame.size === 0) throw new HttpError(400, 'Missing frame.');
+      const mime = IMAGE_TYPES.has(frame.type) ? frame.type : 'image/jpeg';
+      const dataUrl = `data:${mime};base64,${Buffer.from(await frame.arrayBuffer()).toString('base64')}`;
+      try {
+        const text = await ai.describeImage({ instructions: DESCRIBE_INSTRUCTIONS, imageDataUrl: dataUrl });
+        const body: ObstacleDescription = { state: 'ok', frameSeq: seq, description: text.slice(0, 200) };
+        return sendJson(res, 200, body);
+      } catch (e) {
+        const body: ObstacleDescription = {
+          state: 'error',
+          frameSeq: seq,
+          message: e instanceof Error ? e.message : 'Description failed.',
         };
         return sendJson(res, 502, body);
       }
