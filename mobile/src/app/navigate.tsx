@@ -1,9 +1,14 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Linking, StyleSheet, View } from 'react-native';
 import { useSpeech } from '../audio/SpeechProvider';
+import type { VisionAssessment } from '../../../shared/contracts';
+import { assessFrame } from '../api';
+import { noopFrameConsumer, type FrameConsumer } from '../capture/captureLoop';
+import { FeedbackPolicy, VISION_STALE_AFTER_MS } from '../capture/feedbackPolicy';
 import { useCaptureLoop } from '../capture/useCaptureLoop';
+import { BACKEND_URL } from '../config';
 import { BigButton, Body, DemoBanner, Heading, Screen, Status, colors } from '../ui/components';
 
 function useNow(intervalMs: number, active: boolean) {
@@ -18,7 +23,10 @@ function useNow(intervalMs: number, active: boolean) {
 
 export default function NavigateScreen() {
   const [permission, requestPermission] = useCameraPermissions();
-  const { announce } = useSpeech();
+  const { announce, speak } = useSpeech();
+  const [feedbackOn, setFeedbackOn] = useState(BACKEND_URL !== null);
+  const [policy] = useState(() => new FeedbackPolicy());
+  const [last, setLast] = useState<{ result: VisionAssessment; capturedAt: number } | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const [focused, setFocused] = useState(false);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
@@ -46,7 +54,24 @@ export default function NavigateScreen() {
   // Preview (and therefore capture) only exists while visible + foregrounded.
   const cameraMounted = granted && focused && appActive;
   const enabled = cameraMounted && cameraReady;
-  const { stats, start, stop, captureOnce } = useCaptureLoop(cameraRef, enabled);
+  // Each frame is uploaded for assessment; the loop drops new frames while one
+  // is in flight, so latency (not the 1 s timer) sets the effective rate.
+  const consumer = useMemo<FrameConsumer>(
+    () =>
+      feedbackOn
+        ? {
+            consume: async (frame, signal) => {
+              const result = await assessFrame(frame, signal);
+              if (signal.aborted) return;
+              setLast({ result, capturedAt: frame.meta.capturedAt });
+              const phrase = policy.decide(result, frame.meta.capturedAt, Date.now());
+              if (phrase) void speak(phrase);
+            },
+          }
+        : noopFrameConsumer,
+    [feedbackOn, policy, speak],
+  );
+  const { stats, start, stop, captureOnce } = useCaptureLoop(cameraRef, enabled, consumer);
   const now = useNow(500, stats.running || stats.captures > 0);
 
   // Tell the user if the loop was stopped by leaving/backgrounding.
@@ -57,13 +82,29 @@ export default function NavigateScreen() {
   }, [stats.running, enabled, announce]);
 
   const ageS = stats.lastCapturedAt ? ((now - stats.lastCapturedAt) / 1000).toFixed(1) : null;
+  const resultStale = last ? now - last.capturedAt > VISION_STALE_AFTER_MS : false;
+  const resultText = !feedbackOn
+    ? 'Obstacle feedback is off. Frames are captured but not analyzed.'
+    : !last
+      ? 'No assessment yet.'
+      : resultStale
+        ? 'Last assessment is out of date.'
+        : last.result.state === 'ok'
+          ? last.result.spokenSummary
+          : last.result.state === 'unknown'
+            ? last.result.reason
+            : last.result.state === 'unavailable'
+              ? `Feedback unavailable: ${last.result.reason}`
+              : last.result.state === 'error'
+                ? `Feedback error: ${last.result.message}`
+                : 'Waiting…';
 
   return (
     <Screen>
       <Heading>Navigate</Heading>
-      <DemoBanner>
-        Camera frames are captured but NOT analyzed yet. Nothing here tells you whether a path is clear. Use your
-        cane, guide dog, or a sighted guide as usual.
+      <DemoBanner title="Obstacle hints only — not a safety device">
+        The camera describes obstacles it can see. It can miss things and can never confirm a path is safe. Keep using
+        your cane, guide dog, or a sighted guide. Use your planned route and confirm landmarks for direction.
       </DemoBanner>
 
       {!permission ? (
@@ -131,23 +172,49 @@ export default function NavigateScreen() {
             />
           )}
           <BigButton
+            label={feedbackOn ? 'Turn obstacle feedback off' : 'Turn obstacle feedback on'}
+            tone="secondary"
+            hint={
+              BACKEND_URL
+                ? 'Feedback uploads each frame to the backend for an AI obstacle check, then deletes it.'
+                : 'Backend URL is not configured, so feedback cannot run.'
+            }
+            disabled={!BACKEND_URL}
+            selected={feedbackOn}
+            onPress={() => {
+              const next = !feedbackOn;
+              setFeedbackOn(next);
+              policy.reset();
+              setLast(null);
+              announce(next ? 'Obstacle feedback on.' : 'Obstacle feedback off.');
+            }}
+          />
+          <BigButton
             label="Take one photo"
             tone="secondary"
             disabled={!enabled || stats.inFlight}
             onPress={() => {
-              void captureOnce().then((ok) => announce(ok ? 'Photo captured. It was not analyzed.' : 'Camera busy.'));
+              void captureOnce().then((ok) =>
+                announce(
+                  !ok
+                    ? 'Camera busy.'
+                    : feedbackOn
+                      ? 'Photo captured. Checking for obstacles.'
+                      : 'Photo captured. It was not analyzed.',
+                ),
+              );
             }}
           />
 
           <View accessible accessibilityLabel={`Diagnostics. ${stats.captures} frames captured. ${
             ageS ? `Last frame ${ageS} seconds ago.` : 'No frames yet.'
-          } ${stats.dropped} dropped. ${stats.errors} errors.`}>
+          } ${stats.dropped} dropped. ${stats.errors} errors. Last assessment: ${resultText}`}>
             <Body>Frames captured: {stats.captures}</Body>
             <Body>Last frame age: {ageS ? `${ageS} s` : '—'}</Body>
             <Body>Last capture took: {stats.lastCaptureDurationMs != null ? `${stats.lastCaptureDurationMs} ms` : '—'}</Body>
             <Body>Dropped (consumer busy): {stats.dropped}</Body>
             <Body>Errors: {stats.errors}{stats.lastError ? ` (${stats.lastError})` : ''}</Body>
-            <Body>Analysis: not connected (milestone 2)</Body>
+            <Body>Last assessment: {resultText}</Body>
           </View>
         </>
       )}

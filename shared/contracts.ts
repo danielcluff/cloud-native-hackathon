@@ -83,17 +83,32 @@ export type VisionStaleAfterMs = 3000;
 export interface ConferenceSession {
   id: string;
   title: string;
-  startsAt: string; // ISO
-  endsAt: string; // ISO
+  /** Local wall-clock time at the venue, no offset, e.g. "2026-11-10T11:00:00". */
+  startsAt: string;
+  endsAt: string;
+  /** IANA zone the times are in (Salt Lake City). */
+  timeZone: 'America/Denver';
+  /** Full room name from the schedule, e.g. "Salt Palace | Level 1 | Hall DE". */
   room: string;
-  /** Where this record came from (URL of the official schedule, etc.). */
+  /** Building part of the room name, e.g. "Salt Palace" or "Hyatt Regency". */
+  building: string;
+  track: string | null;
+  level: string | null;
+  speakers: string[];
+  /** Plain-text description, truncated for speech. */
+  summary: string;
+  /** Official schedule page for this session. */
   sourceUrl: string;
 }
 
 export interface InterestProfile {
   topics: string[];
   avoid: string[];
-  notes?: string;
+  /** "Beginner", "Intermediate", "Advanced" or null when unknown. */
+  level: string | null;
+  /** Conference day the user is planning, "YYYY-MM-DD", or null for "from now on". */
+  day: string | null;
+  notes: string;
 }
 
 export interface RouteStep {
@@ -110,6 +125,22 @@ export type PlannerResult =
   | {
       state: 'ok';
       recommendations: ConferenceSession[];
-      /** Route steps between consecutive recommendations, from map data. */
+      /** Coarse route steps (building/level/room, confirm with signs or staff); no turn-by-turn. */
       routes: Array<{ fromSessionId: string | null; toSessionId: string; steps: RouteStep[] }>;
+    };
+
+// ---------- Voice turn (push-to-talk interview) ----------
+
+export type VoiceTurnResult =
+  | { state: 'unavailable'; reason: string }
+  | { state: 'error'; message: string; retryable: boolean }
+  | {
+      state: 'ok';
+      conversationId: string;
+      /** What we heard (or the typed text). Shown so the user can catch mistakes. */
+      transcript: string;
+      /** Short reply meant to be spoken. */
+      replyText: string;
+      profile: InterestProfile;
+      plan: PlannerResult;
     };

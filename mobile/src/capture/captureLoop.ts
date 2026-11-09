@@ -38,7 +38,7 @@ export interface CaptureLoopDeps {
   capture?: CaptureFn;
   /** Delete the transient file. Must never throw. */
   discard: (uri: string) => void;
-  consumer: FrameConsumer;
+  consumer?: FrameConsumer;
   intervalMs?: number;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -47,7 +47,7 @@ export interface CaptureLoopDeps {
 }
 
 export class CaptureLoop {
-  private readonly deps: Required<Omit<CaptureLoopDeps, 'onStats' | 'capture'>>;
+  private deps: Required<Omit<CaptureLoopDeps, 'onStats' | 'capture'>>;
   private capture: CaptureFn = () => Promise.reject(new Error('Camera is not ready'));
   private listeners = new Set<(stats: CaptureStats) => void>();
   private timer: unknown = null;
@@ -70,6 +70,7 @@ export class CaptureLoop {
 
   constructor({ capture, onStats, ...deps }: CaptureLoopDeps) {
     this.deps = {
+      consumer: noopFrameConsumer,
       intervalMs: 1000,
       now: Date.now,
       setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -78,6 +79,11 @@ export class CaptureLoop {
     };
     if (capture) this.capture = capture;
     if (onStats) this.listeners.add(onStats);
+  }
+
+  /** Swap the consumer (e.g. when the backend URL or callbacks change). */
+  setConsumer(consumer: FrameConsumer): void {
+    this.deps.consumer = consumer;
   }
 
   setCapture(capture: CaptureFn): void {

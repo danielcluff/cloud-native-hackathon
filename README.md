@@ -3,11 +3,17 @@
 An iPhone-first conference companion for blind and low-vision attendees at
 KubeCon + CloudNativeCon North America 2026. It's built during a six-hour hackathon.
 
-> **Status: milestone 1 (foundation).** The app has real camera, microphone,
-> playback and speech controls. It has **no AI analysis, no conference data and
-> no staff messaging yet**. Every screen says so.
+> **Status: milestone 2.**
+> - **Plan:** push-to-talk (or typed) interview that recommends **real sessions
+>   from the official schedule** and gives coarse route steps.
+> - **Navigate:** sends camera frames to OpenAI Decisions for spoken obstacle
+>   hints.
+> - **Not built yet:** the simulated staff-help request.
+> - **Deployment:** the backend deploys through GitOps to Radar's `dev-local`
+>   cluster (see [docs/deploy-radar-dev-local.md](docs/deploy-radar-dev-local.md)).
+> - **Not tested on a phone yet:** the AI paths have only been tested with fakes.
 
-Planned flagship features for later milestones:
+Flagship features:
 
 1. **Spoken planning interview.** Jarvis-style voice conversation that learns your
    interests, recommends real sessions from the official schedule, accepts
@@ -23,7 +29,9 @@ Planned flagship features for later milestones:
 
 ```
 mobile/   Expo (SDK 58) + React Native + TypeScript app, Expo Router (src/app)
-server/   Minimal Node 24 TypeScript backend (no framework, no runtime deps)
+server/   Node 24 TypeScript backend (no framework, no runtime deps): OpenAI Decisions,
+          transcription and Responses; live Sessionize schedule feed
+deploy/   Kustomize manifests; argocd/ Argo CD Application; .github/workflows/ image CI
 shared/   Type-only contracts used by both (shared/contracts.ts)
 docs/     Handoff notes and sponsor integration notes
 ```
@@ -32,7 +40,7 @@ docs/     Handoff notes and sponsor integration notes
 
 - Node.js **24** (22.18+ also works; the backend relies on Node's built-in TypeScript type stripping)
 - An iPhone with **Expo Go** from the App Store, on the same Wi-Fi as your Mac
-- No OpenAI key and no Apple signing are needed for milestone 1
+- No Apple signing or Xcode. An OpenAI API key (server only) is needed for the AI features; the device checks work without one
 
 ## Run it
 
@@ -41,7 +49,7 @@ docs/     Handoff notes and sponsor integration notes
 ```bash
 cd server
 npm install
-cp .env.example .env    # optional; OPENAI_API_KEY is unused in milestone 1
+cp .env.example .env    # set OPENAI_API_KEY (server-only) for Plan and Navigate AI features
 npm start               # http://0.0.0.0:8787
 curl http://localhost:8787/health
 ```
@@ -61,7 +69,7 @@ Scan the QR code with the iPhone **Camera** app, then open it in Expo Go.
 If your network blocks LAN traffic, use `npx expo start --tunnel` for the app.
 The backend URL still has to be reachable from the phone.
 
-Everything milestone 1 uses (`expo-camera`, `expo-audio`, `expo-speech`,
+Everything the app uses (`expo-camera`, `expo-audio`, `expo-speech`,
 `expo-file-system`, `expo-router`) is bundled in Expo Go.
 
 ### 3. Checks
@@ -75,14 +83,26 @@ cd server && npm run typecheck && npm test
 ## What to try on the phone
 
 - **Home**: Plan, Navigate, Help. Each is a large button with a VoiceOver label and hint.
+- **Plan**:
+  - Tap **Talk** and say what you're interested in, then tap **Done**. You can
+    also type instead.
+  - The backend transcribes it, picks sessions only from the live official
+    schedule feed (anything it can't match there is dropped), and the reply is
+    spoken.
+  - Revise by talking again ("only Wednesday", "nothing about security").
+  - Each session has **Hear details**, **Hear route** (building and level
+    only, confirmed with signs or staff) and **Open on official schedule**.
 - **Navigate**:
   - Asks for camera permission. If you denied it earlier, it offers **Open Settings**.
-  - Shows the rear camera preview.
-  - **Take one photo** captures a single frame.
-  - **Start/Stop capture** runs a loop at about one frame per second. Captures never overlap.
-  - Diagnostics show the frame count, last frame age, capture time, dropped frames and errors.
-  - Capture stops automatically when you leave the screen or the app goes to the background.
-  - Each frame is deleted right after it's handed to the (empty) consumer. Nothing is uploaded or analyzed.
+  - **Start capture** runs a loop at about one frame per second. Captures never
+    overlap.
+  - While **obstacle feedback** is on, each frame is uploaded and assessed by
+    OpenAI Decisions, then deleted.
+  - Feedback is spoken: hazards when they change, "No obstacles detected in
+    view" only after a hazard clears, and stale results are never spoken. It
+    **never says a path is safe**.
+  - Capture stops automatically when you leave the screen or the app goes to
+    the background.
 - **Help**:
   - **Test speech** uses device text-to-speech.
   - **Record** captures up to 10 seconds from the microphone. Speech pauses while it records.
@@ -103,7 +123,7 @@ cd server && npm run typecheck && npm test
   support it), so `npx expo run:ios` and the iOS Simulator aren't available.
   The project is built to need neither: test on a physical iPhone with Expo Go.
 
-## Voice plan: push-to-talk in Expo Go (milestone 2)
+## Voice design: push-to-talk in Expo Go (implemented in milestone 2)
 
 **Decision (2026-11-09):** the voice interview is **turn-based push-to-talk that
 runs in Expo Go**. There's no live WebRTC session and no native build. The dev
@@ -144,5 +164,6 @@ no local Xcode). It would add `react-native-webrtc`,
 `@config-plugins/react-native-webrtc` and `expo-dev-client`. The backend would
 mint the short-lived Realtime credential.
 
+Deployment: [docs/deploy-radar-dev-local.md](docs/deploy-radar-dev-local.md).
 See [docs/milestone-1-handoff.md](docs/milestone-1-handoff.md) for architecture,
 validation results and next steps.

@@ -25,7 +25,7 @@ export function useCaptureLoop(
 ) {
   // One loop per mounted component. Built without touching refs; the camera
   // is bound in an effect below.
-  const [loop] = useState(() => new CaptureLoop({ intervalMs: 1000, consumer, discard: discardCapture }));
+  const [loop] = useState(() => new CaptureLoop({ intervalMs: 1000, discard: discardCapture }));
   const [stats, setStats] = useState<CaptureStats>(() => loop.getStats());
 
   useEffect(() => {
@@ -39,6 +39,10 @@ export function useCaptureLoop(
     });
     return loop.subscribe(setStats);
   }, [loop, cameraRef]);
+
+  useEffect(() => {
+    loop.setConsumer(consumer);
+  }, [loop, consumer]);
 
   useEffect(() => {
     if (!enabled) void loop.stop();

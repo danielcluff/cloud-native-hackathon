@@ -8,7 +8,7 @@
  */
 export type AudioOwner = 'speech' | 'recording' | 'playback';
 
-type StopFn = () => void | Promise<void>;
+type StopFn = () => unknown;
 
 export class AudioCoordinator {
   private owner: AudioOwner | null = null;

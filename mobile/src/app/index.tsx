@@ -8,10 +8,10 @@ export default function Home() {
     <Screen>
       <Heading>Conference companion</Heading>
       <Body>Early prototype for KubeCon North America 2026. Choose one of three options.</Body>
-      <BigButton label="Plan" hint="Plan your conference day. Not available yet." onPress={() => router.push('/plan')} />
+      <BigButton label="Plan" hint="Talk or type to plan your day from the official schedule." onPress={() => router.push('/plan')} />
       <BigButton
         label="Navigate"
-        hint="Opens the rear camera. Frames are captured but not analyzed yet."
+        hint="Opens the rear camera for spoken obstacle hints. Not a safety device."
         onPress={() => router.push('/navigate')}
       />
       <BigButton label="Help" hint="Device checks for speech, microphone, and backend." onPress={() => router.push('/help')} />
@@ -20,7 +20,7 @@ export default function Home() {
         tone="secondary"
         onPress={() =>
           void speak(
-            'This is an early prototype. Navigate shows the camera and can capture photos, but does not analyze them yet. Plan and staff help are not built yet. Help lets you test speech and the microphone.',
+            'This is a hackathon prototype. Plan lets you talk about your interests and suggests real sessions from the official schedule. Navigate uses the camera to describe obstacles it can see, but it can miss things and never confirms a path is safe. Help lets you test speech and the microphone. Requesting staff help is not built yet.',
           )
         }
       />

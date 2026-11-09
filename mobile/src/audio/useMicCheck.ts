@@ -14,7 +14,7 @@ import { discardCapture } from '../capture/useCaptureLoop';
 import { audioCoordinator } from './audioCoordinator';
 
 export type MicPermission = 'unknown' | 'granted' | 'denied' | 'blocked';
-const MAX_RECORDING_MS = 10_000;
+const DEFAULT_MAX_RECORDING_MS = 10_000;
 
 function errMsg(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -25,7 +25,14 @@ function errMsg(e: unknown) {
  * records our own speech. The clip is a transient cache file deleted on the
  * next recording and on unmount; it is never uploaded or logged.
  */
-export function useMicCheck() {
+export function useMicCheck(
+  options: { maxRecordingMs?: number; onAutoStop?: (uri: string | null) => void } = {},
+) {
+  const maxRecordingMs = options.maxRecordingMs ?? DEFAULT_MAX_RECORDING_MS;
+  const onAutoStopRef = useRef(options.onAutoStop);
+  useEffect(() => {
+    onAutoStopRef.current = options.onAutoStop;
+  }, [options.onAutoStop]);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder);
   const player = useAudioPlayer(null);
@@ -55,10 +62,11 @@ export function useMicCheck() {
     };
   }, []);
 
-  const stopRecording = useCallback(async () => {
+  /** Stops recording and resolves to the clip URI (null if nothing was recorded). */
+  const stopRecording = useCallback(async (): Promise<string | null> => {
     if (autoStop.current) clearTimeout(autoStop.current);
     autoStop.current = null;
-    if (!recordingRef.current) return;
+    if (!recordingRef.current) return null;
     recordingRef.current = false;
     try {
       await recorder.stop();
@@ -66,14 +74,23 @@ export function useMicCheck() {
       if (clipRef.current && clipRef.current !== uri) discardCapture(clipRef.current);
       clipRef.current = uri;
       setClipUri(uri);
+      return uri;
     } catch (e) {
       setError(`Could not stop recording: ${errMsg(e)}`);
+      return null;
     } finally {
       // Leave record mode so playback uses the loudspeaker, not the earpiece.
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
       audioCoordinator.release('recording');
     }
   }, [recorder]);
+
+  /** Delete the current clip (e.g. right after it was uploaded). */
+  const discardClip = useCallback(() => {
+    if (clipRef.current) discardCapture(clipRef.current);
+    clipRef.current = null;
+    setClipUri(null);
+  }, []);
 
   const stopPlayback = useCallback(() => {
     try {
@@ -109,14 +126,16 @@ export function useMicCheck() {
       await recorder.prepareToRecordAsync();
       recorder.record();
       recordingRef.current = true;
-      autoStop.current = setTimeout(() => void stopRecording(), MAX_RECORDING_MS);
+      autoStop.current = setTimeout(() => {
+        void stopRecording().then((uri) => onAutoStopRef.current?.(uri));
+      }, maxRecordingMs);
     } catch (e) {
       recordingRef.current = false;
       await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
       audioCoordinator.release('recording');
       setError(`Could not start recording: ${errMsg(e)}`);
     }
-  }, [recorder, refreshPermission, stopRecording]);
+  }, [recorder, refreshPermission, stopRecording, maxRecordingMs]);
 
   const play = useCallback(async () => {
     if (!clipRef.current) return;
@@ -171,6 +190,7 @@ export function useMicCheck() {
     error,
     startRecording,
     stopRecording,
+    discardClip,
     play,
     stopPlayback,
   };

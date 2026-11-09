@@ -77,10 +77,10 @@ export function Body({ children }: { children: ReactNode }) {
 }
 
 /** Labeled, visually distinct banner so demo/empty states are never mistaken for real data. */
-export function DemoBanner({ children }: { children: ReactNode }) {
+export function DemoBanner({ children, title = 'Demo state — no real data' }: { children: ReactNode; title?: string }) {
   return (
     <View accessible accessibilityRole="text" style={styles.banner}>
-      <Text style={styles.bannerTitle}>Demo state — no real data</Text>
+      <Text style={styles.bannerTitle}>{title}</Text>
       <Text style={styles.body}>{children}</Text>
     </View>
   );

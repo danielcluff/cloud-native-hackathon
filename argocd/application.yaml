@@ -1,0 +1,24 @@
+# Argo CD Application for the backend on the Radar-connected dev-local cluster.
+# Apply once: kubectl apply -n argocd -f argocd/application.yaml
+# Argo CD then syncs deploy/ from main on every push (including "deploy:" tag bumps).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: conference-assistant-api
+  namespace: argocd
+spec:
+  # Starter-provisioned clusters use project "team-<team-name>"; a plain Argo CD install uses "default".
+  project: default
+  source:
+    repoURL: https://github.com/danielcluff/cloud-native-hackathon.git
+    targetRevision: main
+    path: deploy
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: conference-assistant
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

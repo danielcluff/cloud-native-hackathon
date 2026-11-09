@@ -8,6 +8,8 @@ export interface ServerConfig {
   host: string;
   /** Present only when a real-looking key is configured. Never log this. */
   openaiApiKey: string | null;
+  /** Model ids, overridable without a code change. Defaults from OpenAI docs (2026-11-09). */
+  models: { vision: string; transcribe: string; text: string };
 }
 
 const PLACEHOLDER_KEYS = new Set(['', 'sk-REPLACE_ME']);
@@ -19,5 +21,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: Number.isFinite(port) ? port : 8787,
     host: env.HOST?.trim() || '0.0.0.0',
     openaiApiKey: PLACEHOLDER_KEYS.has(rawKey) ? null : rawKey,
+    models: {
+      vision: env.OPENAI_VISION_MODEL?.trim() || 'gpt-6-luna',
+      transcribe: env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-transcribe',
+      text: env.OPENAI_TEXT_MODEL?.trim() || 'gpt-6-astra',
+    },
   };
 }

@@ -9,4 +9,6 @@ COPY shared/ /app/shared/
 ENV NODE_ENV=production
 USER node
 EXPOSE 8787
-CMD ["npm", "start"]
+# Run node directly (not npm) so SIGTERM reaches the server and npm never
+# writes caches/logs into the container. Node strips TypeScript types natively.
+CMD ["node", "src/main.ts"]
