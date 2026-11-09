@@ -80,7 +80,9 @@ jobs:
         env:
           TAG: ${{ needs.image.outputs.tag }}
         run: |
-          sed -i -E "s/^(\s*newTag:).*/\1 ${TAG}/" deploy/kustomization.yaml
+          # Quote the tag: an all-digit SHA prefix (e.g. 9636345) would otherwise be a
+          # YAML number, and kustomize rejects non-string image tags.
+          sed -i -E "s/^(\s*newTag:).*/\1 \"${TAG}\"/" deploy/kustomization.yaml
           git diff --stat
           if git diff --quiet; then echo "tag unchanged"; exit 0; fi
           git config user.name "github-actions[bot]"
