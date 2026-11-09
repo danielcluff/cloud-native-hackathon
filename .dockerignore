@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!server/
+!server/package.json
+!server/package-lock.json
+!server/src/
+!server/src/**/*.ts
+!shared/
+!shared/**/*.ts
+**/*.test.ts

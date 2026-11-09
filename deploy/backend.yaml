@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conference-assistant-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: conference-assistant-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: conference-assistant-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          image: conference-assistant-api
+          ports:
+            - name: http
+              containerPort: 8787
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8787"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: conference-assistant-api
+                  key: OPENAI_API_KEY
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: conference-assistant-api
+spec:
+  selector:
+    app.kubernetes.io/name: conference-assistant-api
+  ports:
+    - name: http
+      port: 8787
+      targetPort: http

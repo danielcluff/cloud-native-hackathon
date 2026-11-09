@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "CNH Companion",
+    "slug": "cnh-companion",
+    "scheme": "cnhcompanion",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "dev.cnh.companion"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CNH Companion uses the rear camera while the Navigate screen is open to check the path ahead. Photos are deleted right after use.",
+          "microphonePermission": "CNH Companion uses the microphone for voice conversations and the microphone check.",
+          "recordAudioAndroid": true,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "CNH Companion uses the microphone for voice conversations and the microphone check.",
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ]
+    ]
+  }
+}
