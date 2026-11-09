@@ -91,7 +91,7 @@ test('vision: maps Decisions answers and never logs image bytes', async () => {
   const body = await res.json();
   assert.equal(body.state, 'ok');
   assert.equal(body.frameSeq, 42);
-  assert.equal(body.spokenSummary, 'Furniture ahead, a few steps away. More room on the right.');
+  assert.equal(body.spokenSummary, 'Furniture ahead. Opening on the right.');
   assert.ok(logs.every((l) => !l.includes(marker) && !l.includes(SECRET)));
 });
 

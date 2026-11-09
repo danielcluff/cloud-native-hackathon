@@ -50,7 +50,7 @@ export interface FrameMeta {
   height: number;
 }
 
-export type Direction = 'left' | 'ahead' | 'right' | 'unclear';
+export type Direction = 'left' | 'slight_left' | 'ahead' | 'slight_right' | 'right' | 'unclear';
 export type Proximity = 'near' | 'mid' | 'far' | 'unclear';
 
 /**
@@ -59,7 +59,7 @@ export type Proximity = 'near' | 'mid' | 'far' | 'unclear';
  */
 export type PeopleInPath = 'none' | 'single' | 'group' | 'crowd' | 'unclear';
 
-/** Which side of the path has more open floor for going around. */
+/** Side with the closest visible opening around an obstacle. */
 export type OpenSide = 'left' | 'right' | 'either' | 'neither' | 'unclear';
 
 export interface VisionHazard {
@@ -91,10 +91,12 @@ export type VisionAssessment =
       /** Fixed obstacles first, then groups; single passers-by are not hazards. */
       hazards: VisionHazard[];
       people: PeopleInPath;
+      /** A possibly stationary person in front, to confirm across fresh frames on the phone. */
+      standingPerson?: 'in_front' | 'close_ahead';
       openSide: OpenSide;
       clearOfVisibleObstacles: boolean;
       /**
-       * Stable identity of what's being announced (e.g. "fixed:furniture:ahead"),
+       * Stable identity of what's being announced, including any opening cue,
        * so the app doesn't re-announce the same thing when only the wording
        * changes. null when there is nothing to announce.
        */
