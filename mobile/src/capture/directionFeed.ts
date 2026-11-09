@@ -6,7 +6,7 @@
 import type { VisionAssessment, VisionStaleAfterMs } from '../../../shared/contracts';
 
 /** Same budget as FeedbackPolicy (type-checked against the shared contract). */
-const VISION_STALE_AFTER_MS: VisionStaleAfterMs = 3000;
+const VISION_STALE_AFTER_MS: VisionStaleAfterMs = 4000;
 
 export interface FeedEntry {
   id: number;
@@ -75,6 +75,25 @@ export function makeEntry(
     text: spokenPhrase ?? assessmentText(result),
     spoken: spokenPhrase !== null,
     note: spokenPhrase !== null ? null : quietReason(result, latencyMs),
+  };
+}
+
+/** Feed line for an obstacle description ("Looks like: ..."). */
+export function makeDescriptionEntry(
+  id: number,
+  text: string,
+  spoken: boolean,
+  frame: { seq: number; capturedAt: number },
+  now: number,
+): FeedEntry {
+  return {
+    id,
+    at: now,
+    frameSeq: frame.seq,
+    latencyMs: Math.max(0, now - frame.capturedAt),
+    text,
+    spoken,
+    note: spoken ? null : 'description failed',
   };
 }
 

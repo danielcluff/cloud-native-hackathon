@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Linking, StyleSheet, View } from 'react-native';
 import { useSpeech } from '../audio/SpeechProvider';
 import type { VisionAssessment } from '../../../shared/contracts';
-import { assessFrame } from '../api';
+import { assessFrame, describeFrame } from '../api';
 import { noopFrameConsumer, type FrameConsumer } from '../capture/captureLoop';
 import { DirectionFeed } from '../capture/DirectionFeedView';
-import { makeEntry, pushEntry, type FeedEntry } from '../capture/directionFeed';
+import { makeDescriptionEntry, makeEntry, pushEntry, type FeedEntry } from '../capture/directionFeed';
 import { FeedbackPolicy, VISION_STALE_AFTER_MS } from '../capture/feedbackPolicy';
+import { PersistenceTracker, pickPictureSize } from '../capture/persistence';
 import { useCaptureLoop } from '../capture/useCaptureLoop';
 import { BACKEND_URL } from '../config';
 import { BigButton, Body, DemoBanner, Heading, Screen, Status, colors } from '../ui/components';
@@ -28,6 +29,10 @@ export default function NavigateScreen() {
   const { announce } = useSpeech();
   const [feedbackOn, setFeedbackOn] = useState(BACKEND_URL !== null);
   const [policy] = useState(() => new FeedbackPolicy());
+  // Same obstacle in view for 3 assessments -> ask once for a fuller description.
+  const [persistence] = useState(() => new PersistenceTracker(3));
+  // Smaller photos upload faster; chosen from the sizes the camera reports.
+  const [pictureSize, setPictureSize] = useState<string | undefined>(undefined);
   const [last, setLast] = useState<{ result: VisionAssessment; capturedAt: number } | null>(null);
   // Debug text feed of every assessment and whether it was announced.
   const [feed, setFeed] = useState<FeedEntry[]>([]);
@@ -74,10 +79,21 @@ export default function NavigateScreen() {
               if (phrase) announce(phrase);
               const id = ++feedId.current;
               setFeed((f) => pushEntry(f, makeEntry(id, result, phrase, frame.meta, decidedAt)));
+
+              // Stopped in front of the same obstacle? Describe it once, while the frame file still exists.
+              const fresh = decidedAt - frame.meta.capturedAt <= VISION_STALE_AFTER_MS;
+              if (fresh && persistence.observe(result)) {
+                const d = await describeFrame(frame, signal);
+                if (signal.aborted) return;
+                const text = d.state === 'ok' ? `Looks like: ${d.description}` : `Description unavailable${d.state === 'error' ? `: ${d.message}` : ''}.`;
+                if (d.state === 'ok') announce(text);
+                const did = ++feedId.current;
+                setFeed((f) => pushEntry(f, makeDescriptionEntry(did, text, d.state === 'ok', frame.meta, Date.now())));
+              }
             },
           }
         : noopFrameConsumer,
-    [feedbackOn, policy, announce],
+    [feedbackOn, policy, persistence, announce],
   );
   const { stats, start, stop, captureOnce } = useCaptureLoop(cameraRef, enabled, consumer);
   const now = useNow(500, stats.running || stats.captures > 0);
@@ -111,10 +127,10 @@ export default function NavigateScreen() {
     <Screen>
       <Heading>Navigate</Heading>
       <DemoBanner title="Obstacle hints only — not a safety device">
-        The camera announces fixed obstacles and people standing in your way. It looks for the nearest visible opening
-        around an obstacle and calls out a lone person who stays in view and is close ahead. It can miss things and can
-        never confirm a path is safe. Keep using your cane, guide dog, or a sighted guide, and confirm landmarks for
-        direction.
+        Hold the phone at chest height, pointing forward. The center of the view is your walking path. The app says
+        whether that path looks clear and, if not, which way to go: veer left or right around something, or turn to
+        look for a path when you face a wall. If you stop in front of something, it describes it. It can miss things
+        and never confirms a path is safe. Keep using your cane, guide dog, or a sighted guide.
       </DemoBanner>
 
       {!permission ? (
@@ -145,9 +161,19 @@ export default function NavigateScreen() {
                 style={StyleSheet.absoluteFill}
                 facing="back"
                 animateShutter={false}
+                pictureSize={pictureSize}
                 onCameraReady={() => {
                   setMountError(null);
                   setCameraReady(true);
+                  if (pictureSize === undefined) {
+                    cameraRef.current
+                      ?.getAvailablePictureSizesAsync()
+                      .then((sizes) => {
+                        const pick = pickPictureSize(sizes);
+                        if (pick) setPictureSize(pick);
+                      })
+                      .catch(() => {});
+                  }
                 }}
                 onMountError={(e) => setMountError(e.message)}
               />
@@ -178,6 +204,7 @@ export default function NavigateScreen() {
               disabled={!enabled}
               onPress={() => {
                 policy.reset();
+                persistence.reset();
                 setFeed([]);
                 start();
                 announce('Capture started.');
@@ -198,6 +225,7 @@ export default function NavigateScreen() {
               const next = !feedbackOn;
               setFeedbackOn(next);
               policy.reset();
+              persistence.reset();
               setLast(null);
               setFeed([]);
               announce(next ? 'Obstacle feedback on.' : 'Obstacle feedback off.');
@@ -228,10 +256,12 @@ export default function NavigateScreen() {
             <Body>Last capture took: {stats.lastCaptureDurationMs != null ? `${stats.lastCaptureDurationMs} ms` : '—'}</Body>
             <Body>Dropped (consumer busy): {stats.dropped}</Body>
             <Body>Errors: {stats.errors}{stats.lastError ? ` (${stats.lastError})` : ''}</Body>
+            <Body>Photo size: {pictureSize ?? 'camera default'}</Body>
             <Body>Last assessment: {resultText}</Body>
             {last?.result.state === 'ok' && !resultStale ? (
               <Body>
-                People in path: {last.result.people}. Closest visible opening: {last.result.openSide}.
+                Steer: {last.result.steer}. Facing wall: {last.result.facingWall ? 'yes' : 'no'}. People in path:{' '}
+                {last.result.people}. Open side: {last.result.openSide}.
               </Body>
             ) : null}
           </View>

@@ -13,14 +13,18 @@ const origLog = console.log;
 
 const fakeAi: OpenAIClient = {
   decide: async () => [
-    { type: 'predicate', name: 'image_usable', probability: 0.9 },
-    { type: 'predicate', name: 'fixed_obstacle_in_path', probability: 0.9 },
-    { type: 'choice', name: 'fixed_obstacle_kind', choice: 'furniture', probabilities: [], confidence: 0.9 },
-    { type: 'choice', name: 'fixed_obstacle_direction', choice: 'ahead', probabilities: [], confidence: 0.9 },
-    { type: 'score', name: 'fixed_obstacle_distance', score: 1, probabilities: [], confidence: 0.9 },
-    { type: 'choice', name: 'people_in_path', choice: 'single', probabilities: [], confidence: 0.9 },
-    { type: 'choice', name: 'open_side', choice: 'right', probabilities: [], confidence: 0.9 },
+    { type: 'predicate', name: 'image_usable', probability: 0.99 },
+    { type: 'predicate', name: 'facing_wall', probability: 0.02 },
+    { type: 'predicate', name: 'path_clear', probability: 0.1 },
+    { type: 'choice', name: 'blocker_kind', choice: 'table_or_counter', probabilities: [], confidence: 0.9 },
+    { type: 'choice', name: 'blocker_position', choice: 'center', probabilities: [], confidence: 0.9 },
+    { type: 'score', name: 'blocker_distance', score: 1, probabilities: [], confidence: 0.9 },
+    { type: 'predicate', name: 'left_open', probability: 0.1 },
+    { type: 'predicate', name: 'right_open', probability: 0.9 },
+    { type: 'choice', name: 'steer', choice: 'veer_right', probabilities: [], confidence: 0.9 },
+    { type: 'choice', name: 'people_in_path', choice: 'none', probabilities: [], confidence: 0.9 },
   ],
+  describeImage: async () => 'A counter directly ahead, about two steps away.',
   transcribe: async () => 'I like eBPF',
   // Model "hallucinates" id 999 alongside a real candidate.
   respondJson: async () => ({
@@ -91,7 +95,7 @@ test('vision: maps Decisions answers and never logs image bytes', async () => {
   const body = await res.json();
   assert.equal(body.state, 'ok');
   assert.equal(body.frameSeq, 42);
-  assert.equal(body.spokenSummary, 'Furniture ahead. Opening on the right.');
+  assert.equal(body.spokenSummary, 'Veer right. Table or counter ahead, a few steps away.');
   assert.ok(logs.every((l) => !l.includes(marker) && !l.includes(SECRET)));
 });
 
@@ -173,4 +177,15 @@ test('openai client: documented request shapes, and errors never echo provider b
   assert.equal(loadConfig({}).textReasoningEffort, 'low');
   assert.equal(loadConfig({}).models.text, 'gpt-6.1-sol');
   assert.equal(loadConfig({ OPENAI_TEXT_REASONING_EFFORT: 'default' }).textReasoningEffort, null);
+});
+
+test('describe: returns a short description for a persistent obstacle, never logging the image', async () => {
+  const marker = 'DESCRIBE-IMAGE-MARKER';
+  const form = new FormData();
+  form.append('frame', new Blob([marker], { type: 'image/jpeg' }), 'f.jpg');
+  form.append('seq', '12');
+  const res = await fetch(`${base}/v1/vision/describe`, { method: 'POST', body: form });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { state: 'ok', frameSeq: 12, description: 'A counter directly ahead, about two steps away.' });
+  assert.ok(logs.every((l) => !l.includes(marker)));
 });

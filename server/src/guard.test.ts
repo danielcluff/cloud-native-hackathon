@@ -10,9 +10,10 @@ const TOKEN = 'pairing-token-for-tests-0123456789';
 const ai: OpenAIClient = {
   decide: async () => [
     { type: 'predicate', name: 'image_usable', probability: 0.9 },
-    { type: 'predicate', name: 'fixed_obstacle_in_path', probability: 0.05 },
+    { type: 'predicate', name: 'path_clear', probability: 0.95 },
   ],
   transcribe: async () => 'x',
+  describeImage: async () => 'x',
   respondJson: async () => ({}),
 };
 const app = createApp(

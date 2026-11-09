@@ -66,6 +66,8 @@ export interface OpenAIClient {
     args: { instructions: string; input: Array<{ role: 'user' | 'assistant'; content: string }>; format: JsonSchemaFormat },
     signal?: AbortSignal,
   ): Promise<unknown>;
+  /** Short free-text answer about one image (Responses API with input_image). */
+  describeImage(args: { instructions: string; imageDataUrl: string }, signal?: AbortSignal): Promise<string>;
 }
 
 export interface OpenAIOptions {
@@ -131,6 +133,22 @@ export function createOpenAIClient(opts: OpenAIOptions): OpenAIClient {
       const json = (await call('/audio/transcriptions', form, null, signal)) as { text?: unknown };
       if (typeof json.text !== 'string') throw new UpstreamError('Transcription had no text', null, false);
       return json.text;
+    },
+
+    async describeImage({ instructions, imageDataUrl }, signal) {
+      const json = (await call(
+        '/responses',
+        JSON.stringify({
+          model: opts.textModel,
+          instructions,
+          input: [{ role: 'user', content: [{ type: 'input_image', image_url: imageDataUrl }] }],
+          ...(opts.textReasoningEffort ? { reasoning: { effort: opts.textReasoningEffort } } : {}),
+        }),
+        'application/json',
+        signal,
+      )) as ResponsesBody;
+      if (json.status === 'incomplete') throw new UpstreamError('AI reply was incomplete', null, true);
+      return extractOutputText(json).trim();
     },
 
     async respondJson({ instructions, input, format }, signal) {
