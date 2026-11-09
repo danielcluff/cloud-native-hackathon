@@ -26,12 +26,16 @@ export interface HealthResponse {
   status: 'ok';
   service: 'cnh-backend';
   version: string;
+  /** Seven-character git commit of the running image ("dev" locally). */
+  commit: string;
   /** ISO timestamp from the server clock. */
   time: string;
   /** Whether server-side integrations are configured. Never includes secrets. */
   integrations: {
     openai: 'configured' | 'not_configured';
   };
+  /** 'token' = /v1/* requires a pairing token; 'none' = open (local dev only). */
+  auth: 'token' | 'none';
 }
 
 // ---------- Vision (obstacle assessment) ----------

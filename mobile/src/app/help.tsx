@@ -1,9 +1,107 @@
 import { useEffect, useRef, useState } from 'react';
-import { Linking, View } from 'react-native';
+import { Linking, StyleSheet, TextInput, View } from 'react-native';
+import { checkPairing } from '../api';
+import { clearPairingToken, getPairingToken, setPairingToken } from '../auth';
 import { useSpeech } from '../audio/SpeechProvider';
 import { useMicCheck } from '../audio/useMicCheck';
 import { checkBackendHealth, type HealthCheck } from '../config';
-import { BigButton, Body, DemoBanner, Heading, Screen, Status } from '../ui/components';
+import { BigButton, Body, DemoBanner, Heading, Screen, Status, colors } from '../ui/components';
+
+/** Pair this phone with the public backend using a token kept in the keychain. */
+function Pairing() {
+  const { announce } = useSpeech();
+  const [paired, setPaired] = useState<boolean | null>(null);
+  const [draft, setDraft] = useState('');
+  const [status, setStatus] = useState<{ text: string; tone: 'normal' | 'ok' | 'error' } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void getPairingToken().then((t) => live && setPaired(t !== null));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const verify = async () => {
+    setBusy(true);
+    const r = await checkPairing();
+    setBusy(false);
+    const next =
+      r.state === 'ok'
+        ? { text: 'Paired. The backend accepted this phone.', tone: 'ok' as const }
+        : { text: r.reason, tone: 'error' as const };
+    setStatus(next);
+    announce(next.text);
+  };
+
+  return (
+    <View style={{ gap: 12 }}>
+      <Heading>Pair this phone</Heading>
+      <Body>
+        The backend only answers phones that have its pairing token. Paste the token once; it is stored in this
+        iPhone&rsquo;s keychain and never leaves the device except to the backend.
+      </Body>
+      {status ? <Status tone={status.tone}>{status.text}</Status> : null}
+      <Status>{paired === null ? 'Checking…' : paired ? 'A pairing token is saved.' : 'Not paired yet.'}</Status>
+      <TextInput
+        accessibilityLabel="Pairing token"
+        accessibilityHint="Paste the pairing token, then press Save and check"
+        placeholder="Paste pairing token"
+        placeholderTextColor={colors.muted}
+        value={draft}
+        onChangeText={setDraft}
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={s.input}
+      />
+      <BigButton
+        label={busy ? 'Checking…' : 'Save and check'}
+        disabled={busy || !draft.trim()}
+        onPress={async () => {
+          try {
+            await setPairingToken(draft.trim());
+          } catch {
+            setStatus({ text: 'Could not save the token on this phone.', tone: 'error' });
+            return;
+          }
+          setDraft('');
+          setPaired(true);
+          await verify();
+        }}
+      />
+      {paired ? (
+        <>
+          <BigButton label="Check pairing" tone="secondary" disabled={busy} onPress={() => void verify()} />
+          <BigButton
+            label="Forget token"
+            tone="danger"
+            hint="Removes the pairing token from this phone"
+            onPress={async () => {
+              await clearPairingToken().catch(() => {});
+              setPaired(false);
+              setStatus({ text: 'Token removed. This phone is no longer paired.', tone: 'normal' });
+              announce('Token removed.');
+            }}
+          />
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  input: {
+    minHeight: 56,
+    borderWidth: 2,
+    borderColor: colors.text,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    color: colors.text,
+    fontSize: 20,
+  },
+});
 
 function MicCheck() {
   const mic = useMicCheck();
@@ -95,6 +193,7 @@ export default function HelpScreen() {
       {health?.state === 'ok' ? (
         <Status tone="ok">
           Backend reachable. AI integration {health.health.integrations.openai === 'configured' ? 'configured' : 'not configured'}.
+          {health.health.auth === 'token' ? ' Pairing required.' : ' No pairing required (development).'}
         </Status>
       ) : health?.state === 'unavailable' ? (
         <Status>Backend not configured: {health.reason}</Status>
@@ -111,6 +210,8 @@ export default function HelpScreen() {
           setChecking(false);
         }}
       />
+
+      <Pairing />
     </Screen>
   );
 }

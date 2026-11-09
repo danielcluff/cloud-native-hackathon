@@ -1,7 +1,11 @@
+# Argo CD deploys this folder to the team namespace on the Radar hackathon
+# cluster "daniel-cluff".
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: team-daniel-cluff
 resources:
   - backend.yaml
+  - httproute.yaml
 images:
   - name: conference-assistant-api
     newName: ghcr.io/danielcluff/cloud-native-hackathon/conference-assistant-api

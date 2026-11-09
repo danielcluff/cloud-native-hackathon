@@ -56,6 +56,13 @@ test('GET /health reports ok and integration presence without leaking the key', 
   const text = await res.text();
   assert.ok(!text.includes(SECRET));
   assert.equal(JSON.parse(text).integrations.openai, 'configured');
+  assert.equal(JSON.parse(text).commit, 'dev');
+});
+
+test('GET / prints the version and commit for deploy verification', async () => {
+  const res = await fetch(`${base}/`);
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /^cnh-backend \d+\.\d+\.\d+ version dev\n$/);
 });
 
 test('placeholder key counts as not configured', () => {
