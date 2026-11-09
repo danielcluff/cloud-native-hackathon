@@ -4,7 +4,7 @@ import { checkPairing } from '../api';
 import { clearPairingToken, getPairingToken, setPairingToken } from '../auth';
 import { useSpeech } from '../audio/SpeechProvider';
 import { useMicCheck } from '../audio/useMicCheck';
-import { checkBackendHealth, type HealthCheck } from '../config';
+import { BACKEND_IS_DEFAULT, BACKEND_URL, checkBackendHealth, type HealthCheck } from '../config';
 import { BigButton, Body, DemoBanner, Heading, Screen, Status, colors } from '../ui/components';
 
 /** Pair this phone with the public backend using a token kept in the keychain. */
@@ -190,6 +190,10 @@ export default function HelpScreen() {
       <MicCheck />
 
       <Heading>Backend check</Heading>
+      <Body>
+        Backend: {BACKEND_URL ?? 'not set'}
+        {BACKEND_URL ? (BACKEND_IS_DEFAULT ? ' (deployed, default)' : ' (override from mobile/.env)') : ''}
+      </Body>
       {health?.state === 'ok' ? (
         <Status tone="ok">
           Backend reachable. AI integration {health.health.integrations.openai === 'configured' ? 'configured' : 'not configured'}.

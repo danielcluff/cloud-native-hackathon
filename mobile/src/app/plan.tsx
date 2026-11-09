@@ -107,7 +107,7 @@ export default function PlanScreen() {
       </DemoBanner>
 
       {!BACKEND_URL ? (
-        <Status tone="error">Planning needs the backend. Set EXPO_PUBLIC_BACKEND_URL in mobile/.env.</Status>
+        <Status tone="error">Planning needs the backend, but no backend URL is set.</Status>
       ) : null}
 
       <Body>Tap Talk, say what you are interested in, then tap Done. For example: “I like observability and eBPF, beginner level, Wednesday.”</Body>

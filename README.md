@@ -61,7 +61,8 @@ curl http://localhost:8787/health
 ```bash
 cd mobile
 npm install
-cp .env.example .env    # set EXPO_PUBLIC_BACKEND_URL=http://<your-mac-LAN-IP>:8787
+# The app uses the deployed backend https://daniel-cluff.cnh.radarhq.io by default.
+# Only for a local backend: cp .env.example .env and set EXPO_PUBLIC_BACKEND_URL.
 npx expo start
 ```
 
