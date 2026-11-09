@@ -24,11 +24,11 @@ gaps are still open:
 
 | # | Gap | Who |
 | --- | --- | --- |
-| 1 | We don't know where `dev-local` runs or how to reach it with kubectl. The only kubeconfig context on Daniel's Mac is `admin@homelab` (192.168.1.41), which is unreachable from here. The Radar MCP needs OAuth (`/mcp` → radar-cloud → Authenticate). | Daniel |
+| 1 | We don't know where `dev-local` runs or how to reach it with kubectl. The only kubeconfig context on Daniel's Mac is `admin@homelab` (192.168.1.41), which is unreachable from here. Radar is authorized in Daniel's terminal, but each Claude session signs in on its own: run `/mcp` → radar-cloud → Authenticate in the session doing the deploy. | Daniel |
 | 2 | Is Argo CD installed on `dev-local`, and in which namespace and project? A cluster made by the starter's `local-cluster.sh` uses project `team-<team-name>` and namespace `team-<team-name>`. | Check in step 0 |
-| 3 | `main` doesn't exist on GitHub yet; only `codex/initial-mobile-foundation` does. The workflow and Argo CD both track `main`, so the branch needs a PR and merge. | Daniel |
-| 4 | The GHCR package is private when first created. Either make it public (GitHub → Packages → conference-assistant-api → Package settings → Change visibility) or add an `imagePullSecret`. | Daniel, after the first workflow run |
-| 5 | The `OPENAI_API_KEY` in Daniel's shell is **expired** (the API returned `401 expired_secret_key`). The cluster Secret needs a fresh key. | Daniel |
+| 3 | ✅ `main` is the default branch. The first `backend-image` run built `9c2db02` and the bot committed `deploy: conference-assistant-api 9c2db02` (`d0f7d52`). | Done |
+| 4 | ✅ The GHCR package `conference-assistant-api` is public. | Done |
+| 5 | ✅ A fresh key is in Daniel's shell. A live voice turn and a live Decisions call both succeeded on 2026-11-09. Use the same key for the cluster Secret (step 2). | Done |
 | 6 | The pod needs outbound HTTPS to `api.openai.com` and `sessionize.com` (the schedule feed). | Check in step 5 |
 
 ## 0. Identify the cluster
@@ -50,17 +50,58 @@ If it turns out `dev-local` is a k3d cluster created by the starter, use
 `spec.project` / `spec.destination.namespace` in `argocd/application.yaml`
 to `team-<team-name>`.
 
-## 1. Get the code onto `main`
+## 1. Build the first image
 
-Open a PR from `codex/initial-mobile-foundation` to `main` and merge it. The
-first push to `main` that touches `server/`, `shared/` or `Dockerfile` runs the
-workflow. You can also start it by hand under Actions → backend-image → Run
-workflow.
+`main` exists. Run the workflow once by hand:
 
-Check that the run built `ghcr.io/danielcluff/cloud-native-hackathon/conference-assistant-api:<sha7>`
-and then pushed a `deploy: conference-assistant-api <sha7>` commit.
+1. Open https://github.com/danielcluff/cloud-native-hackathon/actions.
+2. In the left list, pick **backend-image**. If GitHub asks, click "I understand my workflows, go ahead and enable them".
+3. Click **Run workflow**, set **Branch** to `main`, then click the green **Run workflow** button.
+4. Wait for all three jobs (`test`, `image`, `deploy-commit`) to go green. The
+   multi-arch build takes a few minutes.
+5. Check that `main` has a new commit from `github-actions[bot]`:
+   `deploy: conference-assistant-api <sha7>`. Then run `git pull` locally.
 
-Then make the package public (gap 4).
+After that, every push to `main` that touches `server/`, `shared/`,
+`Dockerfile` or the workflow builds and deploys on its own.
+
+### Make the image public
+
+New GHCR packages are private, and the cluster would fail to pull with
+`ImagePullBackOff`. Making the package public is simplest. This is a
+hackathon backend with no secrets baked in; the key comes from a Secret.
+
+1. Go to your packages: https://github.com/danielcluff?tab=packages
+   (or the repo page → right sidebar → **Packages**).
+2. Click **conference-assistant-api**. It exists only after the first `image`
+   job succeeds.
+3. On the right, click **Package settings**.
+4. Scroll to **Danger Zone** → **Change visibility** → choose **Public**, type
+   the package name `conference-assistant-api` to confirm, then click
+   **I understand the consequences, change package visibility**.
+5. While you're there, check **Manage Actions access**: the
+   `cloud-native-hackathon` repo should be listed with **Write**. It's added
+   automatically when the workflow creates the package. Without it, later
+   builds fail to push.
+
+Check that an anonymous pull works (log out of ghcr.io first):
+
+```bash
+docker logout ghcr.io
+docker manifest inspect ghcr.io/danielcluff/cloud-native-hackathon/conference-assistant-api:main
+```
+
+It should list `linux/amd64` and `linux/arm64`. A `401`/`denied` means it's
+still private.
+
+If you'd rather keep it private, create a pull secret with a GitHub token that
+has `read:packages`, and add `imagePullSecrets: [{name: ghcr-pull}]` to the
+pod spec in `deploy/backend.yaml`:
+
+```bash
+read -rs GHCR_TOKEN && kubectl -n conference-assistant create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io --docker-username=danielcluff --docker-password="$GHCR_TOKEN" && unset GHCR_TOKEN
+```
 
 ## 2. Create the namespace and Secret
 
