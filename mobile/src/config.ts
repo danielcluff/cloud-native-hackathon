@@ -5,7 +5,17 @@ import type { HealthResponse } from '../../shared/contracts';
  * bundle and readable by anyone — never put API keys here. OpenAI keys live
  * only in server/.env.
  */
-export const BACKEND_URL: string | null = process.env.EXPO_PUBLIC_BACKEND_URL?.replace(/\/$/, '') || null;
+/** The deployed backend on the Radar hackathon cluster. Public, not a secret. */
+export const DEFAULT_BACKEND_URL = 'https://daniel-cluff.cnh.radarhq.io';
+
+/**
+ * Optional override for a local backend: set EXPO_PUBLIC_BACKEND_URL in
+ * mobile/.env (e.g. http://<Mac-LAN-IP>:8787) and restart `npx expo start`.
+ */
+export const BACKEND_URL: string | null =
+  (process.env.EXPO_PUBLIC_BACKEND_URL?.trim() || DEFAULT_BACKEND_URL).replace(/\/$/, '') || null;
+
+export const BACKEND_IS_DEFAULT = BACKEND_URL === DEFAULT_BACKEND_URL;
 
 export type HealthCheck =
   | { state: 'unavailable'; reason: string }

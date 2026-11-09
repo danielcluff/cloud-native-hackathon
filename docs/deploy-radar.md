@@ -137,11 +137,9 @@ kubectl -n team-daniel-cluff exec deploy/app -- \
 
 ## 5. Point the iPhone at it and pair it
 
-1. In `mobile/.env`, set:
-   ```
-   EXPO_PUBLIC_BACKEND_URL=https://daniel-cluff.cnh.radarhq.io
-   ```
-   Then restart `npx expo start`.
+1. Nothing to configure: the app uses `https://daniel-cluff.cnh.radarhq.io` by
+   default (`mobile/src/config.ts`), and Help → **Backend check** shows the URL in use.
+   A `mobile/.env` with `EXPO_PUBLIC_BACKEND_URL` overrides it, for a local backend only.
 2. Get the pairing token onto the phone. Copy it on the Mac and paste on the
    iPhone with Universal Clipboard, or AirDrop it as a note.
 3. In the app, open Help → **Pair this phone**, paste the token, then tap

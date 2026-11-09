@@ -1,16 +1,23 @@
+import { File as ExpoFile } from 'expo-file-system';
 import type { FrameMeta, VisionAssessment, VoiceTurnResult } from '../../shared/contracts';
 import { authHeaders } from './auth';
 import { BACKEND_URL } from './config';
 
 /**
- * Backend calls. Uploads use React Native's FormData `{ uri, name, type }`
- * file parts, which stream the transient cache file without base64 in JS.
- * Nothing here logs payloads.
+ * Backend calls. Nothing here logs payloads.
+ *
+ * Uploads: Expo SDK 58 replaces the global `fetch` with `expo/fetch`, whose
+ * FormData encoder accepts strings, Blobs, or objects with `bytes()`. It
+ * REJECTS React Native's `{ uri, name, type }` shape ("Unsupported
+ * FormDataPart implementation") before any request is sent. expo-file-system's
+ * `File` implements Blob (`name`, `type`, `bytes()`), so we append that.
  */
+export class UploadFileMissing extends Error {}
 
-function rnFile(uri: string, name: string, type: string): Blob {
-  // React Native's FormData accepts this shape for file uploads.
-  return { uri, name, type } as unknown as Blob;
+export function filePart(uri: string): Blob {
+  const file = new ExpoFile(uri);
+  if (!file.exists) throw new UploadFileMissing('The recorded file is missing.');
+  return file as unknown as Blob;
 }
 
 function withTimeout(signal: AbortSignal | undefined, ms: number): { signal: AbortSignal; done: () => void } {
@@ -50,7 +57,11 @@ async function postForm<T>(path: string, form: FormData, timeoutMs: number, sign
 export async function assessFrame(frame: { uri: string; meta: FrameMeta }, signal: AbortSignal): Promise<VisionAssessment> {
   if (!BACKEND_URL) return { state: 'unavailable', reason: 'Backend URL is not configured.' };
   const form = new FormData();
-  form.append('frame', rnFile(frame.uri, 'frame.jpg', 'image/jpeg'));
+  try {
+    form.append('frame', filePart(frame.uri));
+  } catch {
+    return { state: 'error', frameSeq: frame.meta.seq, message: 'The camera frame could not be read.' };
+  }
   form.append('seq', String(frame.meta.seq));
   try {
     return await postForm<VisionAssessment>('/v1/vision/assess', form, 5000, signal);
@@ -67,13 +78,24 @@ export async function voiceTurn(
   if (!BACKEND_URL) return { state: 'unavailable', reason: 'Backend URL is not configured.' };
   const form = new FormData();
   form.append('conversationId', input.conversationId);
-  if (input.audioUri) form.append('audio', rnFile(input.audioUri, 'turn.m4a', 'audio/mp4'));
-  else if (input.text) form.append('text', input.text);
+  if (input.audioUri) {
+    try {
+      form.append('audio', filePart(input.audioUri));
+    } catch {
+      return { state: 'error', message: 'The recording could not be read. Please record again.', retryable: false };
+    }
+  } else if (input.text) form.append('text', input.text);
   try {
     return await postForm<VoiceTurnResult>('/v1/voice/turn', form, 30_000, signal);
   } catch (e) {
     if (signal?.aborted) throw e;
-    return { state: 'error', message: 'Could not reach the planning service. Check your connection and try again.', retryable: true };
+    // Keep a short technical hint so failures like this one are diagnosable.
+    const hint = e instanceof Error && e.message ? ` (${e.message.slice(0, 80)})` : '';
+    return {
+      state: 'error',
+      message: `Could not reach the planning service. Check your connection and try again.${hint}`,
+      retryable: true,
+    };
   }
 }
 
