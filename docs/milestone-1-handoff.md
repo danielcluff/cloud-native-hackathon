@@ -115,10 +115,11 @@ these weren't triaged.
 1. **Physical iPhone run:** open the project in Expo Go (see the README) and
    check the items under "Not verified" above. You don't need an account or
    signing for this.
-2. **Xcode:** `xcode-select` points at Command Line Tools, so there's no
-   simulator and no `expo run:ios`. Real Realtime voice needs a development
-   build, which needs Xcode (or EAS) and an Apple signing team. Only Daniel can
-   do that.
+2. **No Xcode, by decision:** the current Xcode doesn't support this Mac's
+   macOS 15.7, and there isn't enough disk or download capacity to work around
+   that. So there's no simulator, no `expo run:ios` and no local dev build.
+   **Everything must keep running in Expo Go.** Voice was re-scoped to match
+   (next step 2).
 
 ## Next steps for Codex (milestone 2+)
 
@@ -137,15 +138,34 @@ these weren't triaged.
    - Never say "clear" or "safe". At most, say "no obstacles detected in view".
    - 1 fps is about 3,600 requests per hour per user. Watch cost and rate
      limits, and consider pausing the loop while the scene hasn't changed.
-2. **Realtime voice interview:**
-   - Add `react-native-webrtc` + `@config-plugins/react-native-webrtc` +
-     `expo-dev-client` and make a development build.
-   - The backend mints the ephemeral Realtime credential. Use the current
-     OpenAI WebRTC guide linked from the voice-agents page. The guessed URL
-     `/api/docs/guides/realtime-webrtc` returned 404, so find the real link
-     there.
-   - Route the planner tools through backend endpoints that return `PlannerResult`.
-   - Keep the Help screen's Expo Go capability check as the non-dev-build fallback.
+2. **Voice interview: push-to-talk in Expo Go** (decided 2026-11-09; see the
+   README section "Voice plan"). Don't add `react-native-webrtc` or any other
+   module that isn't in Expo Go.
+   - **Mobile:**
+     - Add a `useVoiceTurn` hook and a large **Talk** control on Plan. Build on
+       `useMicCheck` and `audioCoordinator`.
+     - Upload the clip with a ~15 s timeout and an abort when the user leaves
+       the screen.
+     - Speak `replyText` with `SpeechProvider`.
+     - Announce "Thinking…" while waiting.
+     - Every failure needs a spoken message and a **Try again** control.
+     - Delete the clip after upload.
+   - **Backend: `POST /v1/voice/turn`.**
+     - Accept an audio upload with a size and duration cap.
+     - Convert speech to text, then run a planner turn with the interview state
+       held per session (in memory is fine for the hackathon).
+     - Return `{ transcript, replyText, planner: PlannerResult }`. Add it to
+       `shared/contracts.ts` as a typed `VoiceTurnResult` with `unavailable`
+       and `error` states.
+     - Never log audio or transcripts.
+     - Check the current OpenAI speech-to-text and text-generation docs for
+       exact endpoints and models before coding.
+   - **Optional:** have the backend return synthesized reply audio and play it
+     with `expo-audio`, which keeps playing in silent mode where device TTS may
+     not.
+   - **Stretch (only with an Apple Developer account):** true Realtime voice
+     over WebRTC through an EAS cloud development build (no local Xcode). The
+     backend would mint the ephemeral Realtime credential.
 3. **Planner data:**
    - Ingest the official KubeCon NA 2026 schedule, with a `sourceUrl` on every
      session.

@@ -99,28 +99,50 @@ cd server && npm run typecheck && npm test
   rely on that for TTS. Tell testers to flip the Ring/Silent switch to ring
   (or turn off Silent mode in Control Center) and turn the volume up.
 - The iOS Simulator has no camera. Camera checks need a physical iPhone.
-- This machine's active developer directory is Command Line Tools, not Xcode,
-  so `npx expo run:ios` and the simulator aren't available here until Xcode is
-  installed and selected (`sudo xcode-select -s /Applications/Xcode.app`).
+- There's no Xcode on the dev Mac (macOS 15.7, and the current Xcode doesn't
+  support it), so `npx expo run:ios` and the iOS Simulator aren't available.
+  The project is built to need neither: test on a physical iPhone with Expo Go.
 
-## Path to real Realtime voice (milestone 2+)
+## Voice plan: push-to-talk in Expo Go (milestone 2)
 
-OpenAI Realtime over **WebRTC** on iPhone needs native WebRTC
-(`react-native-webrtc` with `@config-plugins/react-native-webrtc`). That native
-module is **not in Expo Go**, so you need an Expo **development build**:
+**Decision (2026-11-09):** the voice interview is **turn-based push-to-talk that
+runs in Expo Go**. There's no live WebRTC session and no native build. The dev
+Mac can't install a current Xcode (macOS 15.7, not enough disk space, limited
+download capacity), and Expo Go doesn't include `react-native-webrtc`.
 
-```bash
-cd mobile
-npx expo install react-native-webrtc @config-plugins/react-native-webrtc expo-dev-client
-# add "@config-plugins/react-native-webrtc" to app.json plugins
-npx expo run:ios --device     # needs Xcode + an Apple ID signing team, cable or same network
-# or: npx eas-cli@latest build --profile development --platform ios
-```
+How one turn works:
 
-The backend mints the short-lived Realtime client credential. The long-lived
-`OPENAI_API_KEY` never goes into the app. Check the current OpenAI WebRTC guide
-for the exact endpoint and model before you implement this. Keep the Expo Go
-capability check (Help screen) working as a fallback that needs no dev build.
+1. The user presses and holds **Talk** (or taps once to start and once to stop).
+   The app records with `expo-audio`, using the same code as the Help screen's
+   mic check. Recording first stops speech and playback through the audio
+   coordinator.
+2. The app uploads the clip to the backend (`POST /v1/voice/turn`, our own
+   endpoint). The OpenAI key stays on the server.
+3. The backend:
+   - converts speech to text with OpenAI
+   - runs the planner turn with the interview state and verified schedule data
+   - returns the reply text, plus the `PlannerResult` when recommendations change.
+
+   Check the current OpenAI docs for the speech-to-text and model APIs before
+   coding. Don't guess the schemas.
+4. The app speaks the reply with device TTS. **Repeat** and **Stop speech**
+   already work for this.
+
+   Device TTS can be silent when the iPhone is on silent, so a later option is
+   for the backend to return synthesized audio and play it through `expo-audio`
+   with `playsInSilentMode`.
+
+Trade-off: turn latency is roughly a few seconds per exchange, and the user
+can't interrupt mid-sentence except with Stop speech. In return, there's no
+signing, no Xcode and no dev build. The camera/obstacle feature is unaffected;
+it never needed a native build.
+
+Later upgrade, only if time and an Apple Developer account allow: a true
+Realtime voice session over WebRTC through an **EAS cloud development build**
+(`npx eas-cli@latest build --profile development --platform ios`, which needs
+no local Xcode). It would add `react-native-webrtc`,
+`@config-plugins/react-native-webrtc` and `expo-dev-client`. The backend would
+mint the short-lived Realtime credential.
 
 See [docs/milestone-1-handoff.md](docs/milestone-1-handoff.md) for architecture,
 validation results and next steps.
