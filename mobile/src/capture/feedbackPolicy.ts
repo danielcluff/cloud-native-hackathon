@@ -8,7 +8,10 @@
  *   (`alertKey` includes the steer), then repeated every other fresh
  *   assessment while it persists.
  * - "Path ahead looks clear": only at the start or on the transition from a
- *   blocked path, so it never becomes a reassuring drone.
+ *   blocked path, so it never becomes a reassuring drone. A small drift
+ *   correction on a clear path ("Slightly left.") is spoken once when it appears.
+ * - Steering has three strengths: "Slightly" (small correction), "Veer" (step
+ *   around something), "Turn ... to find a path" (blocked by a barrier/wall).
  * - A lone standing person must be close, directly ahead and seen in two
  *   consecutive fresh assessments before being announced; further away, never.
  * - Unknown / errors: rate-limited, so problems are reported without nagging.
@@ -52,7 +55,10 @@ export class FeedbackPolicy {
       const key = result.alertKey;
       if (key === null) return null;
       if (result.clearOfVisibleObstacles) {
-        const transition = this.lastKind === null || this.lastKind === 'hazard';
+        // Plain "clear": only at the start or after a blocked path. A small drift
+        // correction ("Slightly left. Path ahead looks clear.") speaks once when it appears.
+        const transition =
+          this.lastKind === null || this.lastKind === 'hazard' || (key !== 'clear' && this.lastKey !== key);
         return this.emit('clear', key, result.spokenSummary, now, transition);
       }
       const changed = this.lastKind !== 'hazard' || this.lastKey !== key;

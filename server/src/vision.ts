@@ -63,20 +63,38 @@ export const VISION_QUESTIONS: DecisionQuestion[] = [
     type: 'predicate',
     name: 'facing_wall',
     instructions:
-      'Is the camera facing a wall, closed door, window or other large surface that fills most of the view within ' +
-      'about 1.5 meters, so there is no way forward straight ahead?',
+      'Is the camera facing a wall, closed door, window, fridge, the side of a counter, or the TOP of a counter or ' +
+      'table, that fills most of the view within about 1.5 meters, so there is no way forward straight ahead?',
+  },
+  {
+    type: 'predicate',
+    name: 'floor_visible',
+    instructions:
+      'Is open FLOOR visible in the middle of the image, where the person would walk? A countertop, tabletop, ' +
+      'shelf, desk surface or wall is NOT floor.',
   },
   {
     type: 'predicate',
     name: 'path_clear',
     instructions:
       'Is THE WALKING PATH (center band) clear of anything a person could bump into or trip over for about the next ' +
-      '3 meters? Ignore people walking through and anything beside the band.',
+      '3 meters? Ignore people walking through and anything beside the band. If the band shows a countertop, ' +
+      'tabletop or wall instead of floor, it is NOT clear.',
+  },
+  {
+    type: 'predicate',
+    name: 'walk_into',
+    instructions:
+      'If the person walks STRAIGHT FORWARD from where the camera points for about 2 meters (3 steps), would they ' +
+      'walk into something at waist or body height, such as a counter, table edge, shelf, fridge, wall or railing, ' +
+      'EVEN IF some floor is visible below or in front of it?',
   },
   {
     type: 'choice',
     name: 'blocker_kind',
-    instructions: 'What is the nearest thing inside THE WALKING PATH?',
+    instructions:
+      'What is the nearest thing the person would bump into: inside THE WALKING PATH, or straight ahead at body ' +
+      'height (like a counter they are facing)?',
     choices: BLOCKER_KINDS,
   },
   {
@@ -113,13 +131,23 @@ export const VISION_QUESTIONS: DecisionQuestion[] = [
   {
     type: 'choice',
     name: 'steer',
-    instructions: 'Which way should the person go to keep walking forward without bumping into anything?',
+    instructions:
+      'Which way should the person go to keep walking without bumping into anything? Choose the SMALLEST change ' +
+      'that works.',
     choices: [
-      { value: 'straight', description: 'Keep going straight; the path ahead is clear.' },
-      { value: 'veer_left', description: 'Step slightly left to get around something in the path.' },
-      { value: 'veer_right', description: 'Step slightly right to get around something in the path.' },
-      { value: 'turn_left', description: 'The way ahead is blocked; turn left to look for another path.' },
-      { value: 'turn_right', description: 'The way ahead is blocked; turn right to look for another path.' },
+      { value: 'straight', description: 'Keep going straight; the path ahead is clear and well centered.' },
+      {
+        value: 'slight_left',
+        description: 'A small correction to the left: something at the right edge of the path, or drifting toward an edge.',
+      },
+      {
+        value: 'slight_right',
+        description: 'A small correction to the right: something at the left edge of the path, or drifting toward an edge.',
+      },
+      { value: 'veer_left', description: 'A clear step to the left to get around something in the middle of the path.' },
+      { value: 'veer_right', description: 'A clear step to the right to get around something in the middle of the path.' },
+      { value: 'turn_left', description: 'Straight ahead is blocked up close; turn left toward an opening.' },
+      { value: 'turn_right', description: 'Straight ahead is blocked up close; turn right toward an opening.' },
     ],
   },
   {
@@ -154,6 +182,12 @@ export function buildVisionRequest(imageDataUrl: string): DecisionsRequest {
 export const THRESHOLDS = {
   usable: 0.5,
   facingWall: 0.6,
+  /** "Would walk into something within ~2 m": catches counters faced at an angle (recording 2, t119-t123). */
+  walkInto: 0.6,
+  /** No open floor in the middle of the view (e.g. looking at a countertop, recording 2 t122-t123): a barrier. */
+  floorVisible: 0.4,
+  /** A small drift correction on an otherwise clear path needs a fairly sure model. */
+  drift: 0.5,
   // Tuned on frames from Daniel's walk-through: a trash can mid-path scored 0.38.
   pathClear: 0.6,
   pathBlocked: 0.45,
@@ -181,6 +215,8 @@ export const LABEL_PHRASE: Record<string, string> = {
 
 const STEER_PHRASE: Record<Steer, string> = {
   straight: 'Path ahead looks clear.',
+  slight_left: 'Slightly left.',
+  slight_right: 'Slightly right.',
   veer_left: 'Veer left.',
   veer_right: 'Veer right.',
   turn_left: 'Turn left to find a path.',
@@ -220,55 +256,64 @@ function howFar(p: Proximity): string {
   return p === 'near' ? ', close' : p === 'mid' ? ', a few steps away' : '';
 }
 
+type Side = 'left' | 'right';
+const other = (side: Side): Side => (side === 'left' ? 'right' : 'left');
+
 /**
- * Decide which way to go. The model's own `steer` answer is used when it's
- * confident and consistent with the open-floor answers; otherwise we derive it
- * from where the obstacle sits and which side is open.
+ * Decide which way to go, in three strengths: slight (small correction),
+ * veer (step around), turn (rotate to find a path). The model's own answer is
+ * used when it points toward an open side; otherwise it's derived from where
+ * the obstacle is, how close it is, and which side is open.
  */
 export function resolveSteer(opts: {
   modelSteer: string | null;
   blocked: boolean;
   facingWall: boolean;
+  /** Straight ahead would hit something at body height (counter, shelf...). */
+  walkInto?: boolean;
   position: PathPosition;
+  proximity?: Proximity;
   leftOpen: number | null;
   rightOpen: number | null;
 }): Steer {
-  const left = (opts.leftOpen ?? 0) >= THRESHOLDS.sideOpen;
-  const right = (opts.rightOpen ?? 0) >= THRESHOLDS.sideOpen;
-  const better = (): 'left' | 'right' | null =>
-    left && !right
-      ? 'left'
-      : right && !left
-        ? 'right'
-        : left && right
-          ? (opts.leftOpen ?? 0) >= (opts.rightOpen ?? 0)
-            ? 'left'
-            : 'right'
-          : null;
-  const modelSide = (): 'left' | 'right' | null =>
-    opts.modelSteer === 'turn_left' || opts.modelSteer === 'veer_left'
-      ? 'left'
-      : opts.modelSteer === 'turn_right' || opts.modelSteer === 'veer_right'
-        ? 'right'
-        : null;
+  const open = (side: Side) => {
+    const p = side === 'left' ? opts.leftOpen : opts.rightOpen;
+    return p === null ? null : p >= THRESHOLDS.sideOpen;
+  };
+  const better = (): Side | null => {
+    const l = open('left') === true;
+    const r = open('right') === true;
+    if (l && r) return (opts.leftOpen ?? 0) >= (opts.rightOpen ?? 0) ? 'left' : 'right';
+    return l ? 'left' : r ? 'right' : null;
+  };
+  const m = opts.modelSteer;
+  const modelSide: Side | null = m?.endsWith('_left') ? 'left' : m?.endsWith('_right') ? 'right' : null;
+  const modelLevel = m?.startsWith('slight_') ? 'slight' : m?.startsWith('veer_') ? 'veer' : m?.startsWith('turn_') ? 'turn' : null;
+  // A side the model picks is acceptable unless we know it's closed.
+  const usable = (side: Side | null) => side !== null && open(side) !== false;
 
-  if (opts.facingWall) {
-    const side = better() ?? modelSide();
+  // Facing a wall or about to walk into something up close: rotate toward an opening.
+  // (walk_into already asks about the next ~2 m, so no extra distance check.)
+  const nearStraight = opts.facingWall || opts.walkInto === true;
+  if (nearStraight) {
+    const side = (usable(modelSide) ? modelSide : null) ?? better();
     return side ? `turn_${side}` : 'turn_either';
   }
   if (!opts.blocked) return 'straight';
 
-  const m = opts.modelSteer;
-  if (m === 'veer_left' && (left || opts.leftOpen === null)) return 'veer_left';
-  if (m === 'veer_right' && (right || opts.rightOpen === null)) return 'veer_right';
-  if (m === 'turn_left' || m === 'turn_right') return m;
+  if (modelLevel && usable(modelSide)) return `${modelLevel}_${modelSide}` as Steer;
 
-  // Derive: go around on the side away from the obstacle, if that side is open.
-  if (opts.position === 'left_part' && right) return 'veer_right';
-  if (opts.position === 'right_part' && left) return 'veer_left';
+  // Derive. Obstacle at an edge of the path: step away from it, slightly unless it's close.
+  if (opts.position === 'left_part' || opts.position === 'right_part') {
+    const away: Side = opts.position === 'left_part' ? 'right' : 'left';
+    if (open(away) !== false) return opts.proximity === 'near' ? `veer_${away}` : `slight_${away}`;
+    if (open(other(away)) === true) return `veer_${other(away)}`;
+    return 'turn_either';
+  }
+  // Obstacle in the middle (or unclear) that you can step around (a person, a chair): veer.
+  // Body-height barriers and walls were already handled above as "turn".
   const side = better();
-  if (side) return `veer_${side}`;
-  return 'turn_either';
+  return side ? `veer_${side}` : 'turn_either';
 }
 
 export function mapVisionAnswers(answers: DecisionAnswer[], frameSeq: number, now = Date.now()): VisionAssessment {
@@ -308,35 +353,83 @@ export function mapVisionAnswers(answers: DecisionAnswer[], frameSeq: number, no
   const position: PathPosition =
     posChoice === 'left_part' || posChoice === 'center' || posChoice === 'right_part' ? posChoice : 'unclear';
 
-  const blocked = facingWall || clear <= THRESHOLDS.pathBlocked;
+  const walkInto = (prob(answers, 'walk_into') ?? 0) >= THRESHOLDS.walkInto;
+  const floor = prob(answers, 'floor_visible');
+  const noFloor = floor !== null && floor < THRESHOLDS.floorVisible;
+  // Facing a counter at an angle can leave floor visible in the band; "would walk into it" overrides.
+  const blocked = facingWall || noFloor || walkInto || clear <= THRESHOLDS.pathBlocked;
   if (!blocked && clear < THRESHOLDS.pathClear) {
     return { state: 'unknown', frameSeq, reason: 'Not sure about the path ahead.' };
   }
 
-  const steer = resolveSteer({
-    modelSteer: confidentChoice(answers, 'steer'),
+  const distance = proximity(answers);
+  const modelSteer = confidentChoice(answers, 'steer');
+  // You can step around people, chairs, bags, bins and planters: those get "veer", not "turn".
+  const steppable = new Set([
+    'person_standing',
+    'group_of_people',
+    'chair_or_bench',
+    'backpack_or_bag',
+    'trash_can',
+    'plant_or_decor',
+    'cable_or_small_object',
+  ]);
+  const isSteppable = kindChoice !== null && steppable.has(kindChoice);
+  // A person standing right in front can also hide the floor: that's still a "veer", not a barrier.
+  const noFloorBarrier = noFloor && !isSteppable;
+  const barrierAhead = facingWall || noFloorBarrier || (walkInto && !isSteppable);
+  let steer = resolveSteer({
+    modelSteer,
     blocked,
-    facingWall,
+    facingWall: facingWall || noFloorBarrier,
+    walkInto: barrierAhead,
     position,
+    proximity: distance,
     leftOpen,
     rightOpen,
   });
 
-  const base = { state: 'ok' as const, frameSeq, assessedAt: now, people, openSide, steer, facingWall };
-
   if (!blocked) {
-    return { ...base, spokenSummary: STEER_PHRASE.straight, hazards: [], clearOfVisibleObstacles: true, alertKey: 'clear' };
+    // Clear path, but the model is fairly sure a small correction keeps you centered.
+    const steerAnswer = find(answers, 'steer', 'choice');
+    const drift =
+      steerAnswer && steerAnswer.confidence >= THRESHOLDS.drift && (steerAnswer.choice === 'slight_left' || steerAnswer.choice === 'slight_right')
+        ? (steerAnswer.choice as Steer)
+        : null;
+    if (drift) steer = drift;
+    return {
+      state: 'ok',
+      frameSeq,
+      assessedAt: now,
+      people,
+      openSide,
+      steer,
+      facingWall,
+      walkInto,
+      spokenSummary: drift ? `${STEER_PHRASE[drift]} ${STEER_PHRASE.straight}` : STEER_PHRASE.straight,
+      hazards: [],
+      clearOfVisibleObstacles: true,
+      alertKey: drift ? `clear:${drift}` : 'clear',
+    };
   }
 
-  const label = facingWall
-    ? 'wall_or_door'
+  const base = { state: 'ok' as const, frameSeq, assessedAt: now, people, openSide, steer, facingWall, walkInto };
+
+  // Facing a barrier: name it if the model knows what it is (often a counter), else "wall or door".
+  const barrierKinds = new Set(['table_or_counter', 'wall_or_door', 'column_or_pillar', 'sign_or_barrier', 'other']);
+  const facingBarrier = facingWall || noFloorBarrier;
+  const label = facingBarrier
+    ? kindChoice && barrierKinds.has(kindChoice) && kindChoice !== 'other'
+      ? kindChoice
+      : 'wall_or_door'
     : kindChoice && kindChoice !== 'none'
       ? kindChoice
       : people === 'group' || people === 'crowd'
         ? 'group_of_people'
         : 'other';
   const isPeople = label === 'person_standing' || label === 'group_of_people';
-  const hazardPosition: PathPosition = facingWall ? 'center' : position;
+  // Facing a barrier, or about to walk into one straight ahead: it's "ahead".
+  const hazardPosition: PathPosition = facingBarrier || barrierAhead ? 'center' : position;
   const hazard: VisionHazard = {
     kind: isPeople ? 'people' : 'fixed',
     label,
@@ -348,13 +441,13 @@ export function mapVisionAnswers(answers: DecisionAnswer[], frameSeq: number, no
           : hazardPosition === 'center'
             ? 'ahead'
             : 'unclear',
-    proximity: facingWall ? 'near' : proximity(answers),
+    proximity: facingBarrier ? 'near' : distance,
     position: hazardPosition,
   };
 
   // Direction first, then what and where: "Veer right. Bag on the floor on the left of your path, close."
-  const what = facingWall
-    ? 'Wall or door ahead.'
+  const what = facingBarrier
+    ? `${LABEL_PHRASE[label] ?? 'Wall or door'} ahead.`
     : `${LABEL_PHRASE[label] ?? 'Obstacle'} ${POSITION_PHRASE[hazardPosition]}${howFar(hazard.proximity)}.`;
   const spokenSummary = steer === 'unclear' ? what : `${STEER_PHRASE[steer]} ${what}`;
 

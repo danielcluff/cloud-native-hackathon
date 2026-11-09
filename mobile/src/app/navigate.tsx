@@ -128,9 +128,10 @@ export default function NavigateScreen() {
       <Heading>Navigate</Heading>
       <DemoBanner title="Obstacle hints only — not a safety device">
         Hold the phone at chest height, pointing forward. The center of the view is your walking path. The app says
-        whether that path looks clear and, if not, which way to go: veer left or right around something, or turn to
-        look for a path when you face a wall. If you stop in front of something, it describes it. It can miss things
-        and never confirms a path is safe. Keep using your cane, guide dog, or a sighted guide.
+        whether that path looks clear and, if not, which way to go: slightly left or right for a small correction,
+        veer left or right to step around something, or turn to find a path when a wall or counter blocks the way. If
+        you stop in front of something, it describes it. It can miss things and never confirms a path is safe. Keep
+        using your cane, guide dog, or a sighted guide.
       </DemoBanner>
 
       {!permission ? (
@@ -260,7 +261,8 @@ export default function NavigateScreen() {
             <Body>Last assessment: {resultText}</Body>
             {last?.result.state === 'ok' && !resultStale ? (
               <Body>
-                Steer: {last.result.steer}. Facing wall: {last.result.facingWall ? 'yes' : 'no'}. People in path:{' '}
+                Steer: {last.result.steer}. Facing wall: {last.result.facingWall ? 'yes' : 'no'}. Would walk into
+                something: {last.result.walkInto ? 'yes' : 'no'}. People in path:{' '}
                 {last.result.people}. Open side: {last.result.openSide}.
               </Body>
             ) : null}
