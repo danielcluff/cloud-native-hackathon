@@ -20,8 +20,8 @@ Flagship features:
    interests, recommends real sessions from the official schedule, accepts
    revisions, and plans routes through the day.
 2. **Foreground obstacle feedback.** About one camera frame per second goes to
-   OpenAI Decisions for visible-obstacle assessment, which comes back as concise
-   spoken feedback. Map routes and landmarks the user confirms set the direction.
+   OpenAI Decisions, which returns concise spoken feedback on fixed obstacles,
+   groups of people in the way, and which side has more room. Map routes and landmarks the user confirms set the direction.
    The app does not trust indoor GPS. A camera result never claims a path is safe.
 3. **Event-assistant request (simulated).** A request UI with a confirmed location and
    a clearly labelled fake ETA. It never messages real staff.
@@ -104,9 +104,17 @@ cd server && npm run typecheck && npm test
     overlap.
   - While **obstacle feedback** is on, each frame is uploaded and assessed by
     OpenAI Decisions, then deleted.
-  - Feedback is spoken: hazards when they change, "No obstacles detected in
-    view" only after a hazard clears, and stale results are never spoken. It
-    **never says a path is safe**.
+  - It focuses on **fixed obstacles** (furniture, columns and walls, steps and
+    stairs, signs and barriers, objects on the floor). People move on their
+    own, so a **single passer-by isn't announced**. A **group or crowd standing
+    in the path** is, because it's worth going around.
+  - When something is in the path, it says which side has **more room**, but
+    only when the model is fairly sure, and never toward a side where it just
+    named an obstacle.
+  - Speech: an obstacle is announced when *what* it is changes (not just the
+    wording) and repeated at most every 4 s. "No fixed obstacles detected in
+    view" is said only after a hazard clears, and stale results are never
+    spoken. It **never says a path is safe**.
   - Capture stops automatically when you leave the screen or the app goes to
     the background.
 - **Help**:

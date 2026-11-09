@@ -11,7 +11,7 @@ export default function Home() {
       <BigButton label="Plan" hint="Talk or type to plan your day from the official schedule." onPress={() => router.push('/plan')} />
       <BigButton
         label="Navigate"
-        hint="Opens the rear camera for spoken obstacle hints. Not a safety device."
+        hint="Opens the rear camera for spoken hints about fixed obstacles and groups. Not a safety device."
         onPress={() => router.push('/navigate')}
       />
       <BigButton label="Help" hint="Device checks for speech, microphone, and backend." onPress={() => router.push('/help')} />
@@ -20,7 +20,7 @@ export default function Home() {
         tone="secondary"
         onPress={() =>
           void speak(
-            'This is a hackathon prototype. Plan lets you talk about your interests and suggests real sessions from the official schedule. Navigate uses the camera to describe obstacles it can see, but it can miss things and never confirms a path is safe. Help lets you test speech and the microphone. Requesting staff help is not built yet.',
+            'This is a hackathon prototype. Plan lets you talk about your interests and suggests real sessions from the official schedule. Navigate uses the camera to announce fixed obstacles and groups of people in your way, and which side has more room. It can miss things and never confirms a path is safe. Help lets you test speech and the microphone. Requesting staff help is not built yet.',
           )
         }
       />
