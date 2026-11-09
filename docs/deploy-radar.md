@@ -92,7 +92,9 @@ the phone.
 Optional env in the Deployment:
 - Model overrides: `OPENAI_VISION_MODEL` (default `gpt-6-luna`),
   `OPENAI_TRANSCRIBE_MODEL` (`gpt-transcribe`) and `OPENAI_TEXT_MODEL`
-  (`gpt-6-astra`).
+  (`gpt-6.1-sol`), and `OPENAI_TEXT_REASONING_EFFORT` (`low`; `default` uses the
+  model's own, which roughly doubles planning latency). Measured on 2026-11-09:
+  `gpt-6.1-sol` low 2.9-4.8 s per planning call, versus 5-10 s for `gpt-6-astra`.
 - Usage caps: `LIMIT_VISION_PER_MINUTE` (70), `LIMIT_VISION_PER_DAY` (3000),
   `LIMIT_VOICE_PER_MINUTE` (10) and `LIMIT_VOICE_PER_DAY` (300).
 
@@ -167,7 +169,7 @@ allowlists):
 | --- | --- | --- |
 | Obstacle checks (Navigate) | `POST /v1/decisions` | `gpt-6-luna` |
 | Speech-to-text (Plan, push-to-talk) | `POST /v1/audio/transcriptions` | `gpt-transcribe` |
-| Planning replies (Plan) | `POST /v1/responses`, structured JSON output | `gpt-6-astra` |
+| Planning replies (Plan) | `POST /v1/responses`, structured JSON output | `gpt-6.1-sol` |
 
 Nothing else is called: no Realtime, embeddings, files, images or
 text-to-speech. Speech output uses the phone's own voice.

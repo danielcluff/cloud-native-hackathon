@@ -24,7 +24,8 @@ const fakeAi: OpenAIClient = {
   respondJson: async () => ({
     reply: 'Try the eBPF deep dive at 11 AM.',
     profile: { topics: ['ebpf'], avoid: [], level: null, day: null, notes: '' },
-    planSessionIds: ['999', '1'],
+    matchSessionIds: ['999', '1'],
+    excludeSessionIds: [],
   }),
 };
 const catalog = { get: async () => ({ sessions: normalizeSchedule(FIXTURE), fetchedAt: Date.now() }) };
@@ -108,11 +109,18 @@ test('voice turn: transcribes audio, drops fabricated session ids, returns real 
   const body = await res.json();
   assert.equal(body.state, 'ok');
   assert.equal(body.transcript, 'I like eBPF');
+  // '999' was never shown to the model, so it's dropped. '1' is the match;
+  // the server fills the rest of Tuesday with real related sessions.
   assert.deepEqual(
-    body.plan.recommendations.map((s: { id: string }) => s.id),
-    ['1'],
+    body.plan.recommendations.map((s: { id: string; fit: string }) => [s.id, s.fit]),
+    [
+      ['1', 'match'],
+      ['4', 'related'],
+    ],
   );
-  assert.equal(body.plan.routes.length, 1);
+  assert.equal(body.plan.day, '2026-11-10');
+  assert.equal(body.plan.routes.length, 2);
+  assert.match(body.replyText, /^Your Tuesday plan has 1 match and 1 more session to fill your day\./);
   assert.ok(logs.every((l) => !l.includes('AUDIO-BYTES-MARKER') && !l.includes('eBPF')));
 });
 
@@ -146,7 +154,8 @@ test('openai client: documented request shapes, and errors never echo provider b
     apiKey: SECRET,
     visionModel: 'gpt-6-luna',
     transcribeModel: 'gpt-transcribe',
-    textModel: 'gpt-6-astra',
+    textModel: 'gpt-6.1-sol',
+    textReasoningEffort: 'low',
     fetchImpl: fakeFetch,
   });
   await assert.rejects(
@@ -155,7 +164,11 @@ test('openai client: documented request shapes, and errors never echo provider b
   );
   assert.deepEqual(await client.respondJson({ instructions: 'x', input: [], format: { name: 'n', schema: {} } }), { a: 1 });
   const responses = calls.find((c) => c.url.endsWith('/responses'))!.body as Record<string, any>;
-  assert.equal(responses.model, 'gpt-6-astra');
+  assert.equal(responses.model, 'gpt-6.1-sol');
   assert.equal(responses.text.format.type, 'json_schema');
   assert.equal(responses.text.format.strict, true);
+  assert.deepEqual(responses.reasoning, { effort: 'low' });
+  assert.equal(loadConfig({}).textReasoningEffort, 'low');
+  assert.equal(loadConfig({}).models.text, 'gpt-6.1-sol');
+  assert.equal(loadConfig({ OPENAI_TEXT_REASONING_EFFORT: 'default' }).textReasoningEffort, null);
 });

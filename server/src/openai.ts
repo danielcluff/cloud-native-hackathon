@@ -74,6 +74,8 @@ export interface OpenAIOptions {
   visionModel: string;
   transcribeModel: string;
   textModel: string;
+  /** Responses `reasoning.effort` for planning turns; null = model default. */
+  textReasoningEffort?: string | null;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -139,6 +141,7 @@ export function createOpenAIClient(opts: OpenAIOptions): OpenAIClient {
           instructions,
           input,
           text: { format: { type: 'json_schema', name: format.name, schema: format.schema, strict: true } },
+          ...(opts.textReasoningEffort ? { reasoning: { effort: opts.textReasoningEffort } } : {}),
         }),
         'application/json',
         signal,

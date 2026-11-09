@@ -1,4 +1,4 @@
-import type { ConferenceSession } from '../../../shared/contracts';
+import type { ConferenceSession, PlanFit } from '../../../shared/contracts';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -15,4 +15,14 @@ export function formatLocal(isoLocal: string, withDay = true): string {
 
 export function describeSession(s: ConferenceSession): string {
   return `${formatLocal(s.startsAt)} to ${formatLocal(s.endsAt, false)}. ${s.title}. ${s.room.replace(/\s*\|\s*/g, ', ')}.`;
+}
+
+export const FIT_LABEL: Record<PlanFit, string> = {
+  match: 'Match',
+  related: 'Related',
+  filler: 'Fills open time',
+};
+
+export function dayName(day: string): string {
+  return formatLocal(`${day}T12:00:00`).split(' ')[0] ?? day;
 }

@@ -74,9 +74,12 @@ export function createApp(config: ServerConfig, deps: AppDeps = {}): Server {
             visionModel: config.models.vision,
             transcribeModel: config.models.transcribe,
             textModel: config.models.text,
+            textReasoningEffort: config.textReasoningEffort,
           })
         : null;
   const catalog = deps.catalog ?? createScheduleCatalog();
+  // Warm the schedule cache at startup so the first voice turn doesn't pay for the fetch.
+  if (!deps.catalog) void catalog.get();
   const interviewer = new Interviewer(ai, catalog, deps.clock);
   const caps = new UsageCaps(config.limits);
 

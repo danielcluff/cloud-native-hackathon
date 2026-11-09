@@ -121,6 +121,18 @@ export interface RouteStep {
   confirmLandmark?: string;
 }
 
+/**
+ * How a planned session relates to the attendee's request:
+ * - match: picked because it directly matches what they asked for
+ * - related: added to fill open time; loosely related to their interests
+ * - filler: added to fill open time; no clear link to their interests
+ */
+export type PlanFit = 'match' | 'related' | 'filler';
+
+export interface PlanItem extends ConferenceSession {
+  fit: PlanFit;
+}
+
 export type PlannerResult =
   | { state: 'unavailable'; reason: string }
   | { state: 'pending' }
@@ -128,7 +140,10 @@ export type PlannerResult =
   | { state: 'error'; message: string }
   | {
       state: 'ok';
-      recommendations: ConferenceSession[];
+      /** Day being planned ("YYYY-MM-DD", venue-local), or null when nothing is planned. */
+      day: string | null;
+      /** Time-ordered, non-overlapping; matches first chosen, then gaps filled. */
+      recommendations: PlanItem[];
       /** Coarse route steps (building/level/room, confirm with signs or staff); no turn-by-turn. */
       routes: Array<{ fromSessionId: string | null; toSessionId: string; steps: RouteStep[] }>;
     };
