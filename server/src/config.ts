@@ -14,9 +14,9 @@ export interface ServerConfig {
   appAccessToken: string | null;
   /** Caps on paid AI calls (in-memory, per replica). */
   limits: { vision: { perMinute: number; perDay: number }; voice: { perMinute: number; perDay: number } };
-  /** Model ids, overridable without a code change. Defaults from OpenAI docs (2026-11-09). */
+  /** Model ids, overridable without a code change. Text model chosen by Daniel (faster/cheaper than gpt-6-astra). */
   models: { vision: string; transcribe: string; text: string };
-  /** Reasoning effort for planning turns; 'low' halves latency (measured 10s -> 5s). */
+  /** Reasoning effort for planning turns; 'low' measured 2.9-4.8s vs 6.8-7.5s default on gpt-6.1-sol. */
   textReasoningEffort: string | null;
 }
 
@@ -45,7 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     models: {
       vision: env.OPENAI_VISION_MODEL?.trim() || 'gpt-6-luna',
       transcribe: env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-transcribe',
-      text: env.OPENAI_TEXT_MODEL?.trim() || 'gpt-6-astra',
+      text: env.OPENAI_TEXT_MODEL?.trim() || 'gpt-6.1-sol',
     },
     // Set OPENAI_TEXT_REASONING_EFFORT=default to use the model's own default.
     textReasoningEffort:

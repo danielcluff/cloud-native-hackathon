@@ -154,7 +154,7 @@ test('openai client: documented request shapes, and errors never echo provider b
     apiKey: SECRET,
     visionModel: 'gpt-6-luna',
     transcribeModel: 'gpt-transcribe',
-    textModel: 'gpt-6-astra',
+    textModel: 'gpt-6.1-sol',
     textReasoningEffort: 'low',
     fetchImpl: fakeFetch,
   });
@@ -164,10 +164,11 @@ test('openai client: documented request shapes, and errors never echo provider b
   );
   assert.deepEqual(await client.respondJson({ instructions: 'x', input: [], format: { name: 'n', schema: {} } }), { a: 1 });
   const responses = calls.find((c) => c.url.endsWith('/responses'))!.body as Record<string, any>;
-  assert.equal(responses.model, 'gpt-6-astra');
+  assert.equal(responses.model, 'gpt-6.1-sol');
   assert.equal(responses.text.format.type, 'json_schema');
   assert.equal(responses.text.format.strict, true);
   assert.deepEqual(responses.reasoning, { effort: 'low' });
   assert.equal(loadConfig({}).textReasoningEffort, 'low');
+  assert.equal(loadConfig({}).models.text, 'gpt-6.1-sol');
   assert.equal(loadConfig({ OPENAI_TEXT_REASONING_EFFORT: 'default' }).textReasoningEffort, null);
 });
