@@ -61,7 +61,23 @@ test('a single passer-by is reported but not announced', () => {
   if (r.state !== 'ok') return;
   assert.equal(r.people, 'single');
   assert.deepEqual(r.hazards, []);
+  assert.equal(r.standingPerson, undefined);
   assert.equal(r.alertKey, 'clear');
+});
+
+test('a standing person is a candidate, with close ahead reserved for the center of the path', () => {
+  const standing = [
+    c('people_in_path', 'single'),
+    p('people_stationary', 0.85),
+    p('single_person_close', 0.9),
+  ];
+  const center = mapVisionAnswers(frame(...standing, c('people_direction', 'ahead')), 1);
+  const edge = mapVisionAnswers(frame(...standing, c('people_direction', 'slight_left')), 2);
+  const side = mapVisionAnswers(frame(...standing, c('people_direction', 'left')), 3);
+  assert.equal(center.state === 'ok' && center.standingPerson, 'close_ahead');
+  assert.equal(center.state === 'ok' && center.alertKey, 'clear');
+  assert.equal(edge.state === 'ok' && edge.standingPerson, 'in_front');
+  assert.equal(side.state === 'ok' && side.standingPerson, undefined);
 });
 
 test('fixed obstacle ahead -> concise phrase plus which side is more open', () => {
@@ -77,9 +93,9 @@ test('fixed obstacle ahead -> concise phrase plus which side is more open', () =
   );
   assert.equal(r.state, 'ok');
   if (r.state !== 'ok') return;
-  assert.equal(r.spokenSummary, 'Furniture ahead, close. More room on the right.');
+  assert.equal(r.spokenSummary, 'Furniture ahead, close. Opening on the right.');
   assert.deepEqual(r.hazards, [{ kind: 'fixed', label: 'furniture', direction: 'ahead', proximity: 'near' }]);
-  assert.equal(r.alertKey, 'fixed:furniture:ahead');
+  assert.equal(r.alertKey, 'fixed:furniture:ahead:opening:right');
   assert.equal(r.clearOfVisibleObstacles, false);
 });
 
@@ -94,7 +110,30 @@ test('obstacle off to one side gets no detour hint', () => {
     ),
     3,
   );
-  assert.equal(r.state === 'ok' && r.spokenSummary, 'Column or wall on the left, a few steps away.');
+  assert.equal(r.state === 'ok' && r.spokenSummary, 'Column or wall on the left.');
+});
+
+test('a table at the right edge of the path gets a short cue without a hint toward it', () => {
+  const r = mapVisionAnswers(
+    frame(
+      p('fixed_obstacle_in_path', 0.9),
+      c('fixed_obstacle_kind', 'table'),
+      c('fixed_obstacle_direction', 'slight_right'),
+      s('fixed_obstacle_distance', 0.2),
+      c('open_side', 'right'),
+    ),
+    3,
+  );
+  assert.equal(r.state === 'ok' && r.spokenSummary, 'Table slightly right, close.');
+  assert.equal(r.state === 'ok' && r.alertKey, 'fixed:table:slight_right');
+});
+
+test('a chair close alongside the aisle is announced even when it does not block the path', () => {
+  const r = mapVisionAnswers(
+    frame(c('fixed_obstacle_kind', 'chair'), c('fixed_obstacle_direction', 'left'), s('fixed_obstacle_distance', 0.2)),
+    4,
+  );
+  assert.equal(r.state === 'ok' && r.spokenSummary, 'Chair on the left, close.');
 });
 
 test('a group standing in the path is announced with a route hint', () => {
@@ -104,8 +143,8 @@ test('a group standing in the path is announced with a route hint', () => {
   );
   assert.equal(r.state, 'ok');
   if (r.state !== 'ok') return;
-  assert.equal(r.spokenSummary, 'Group of people ahead. More room on the left.');
-  assert.equal(r.alertKey, 'people:group:ahead');
+  assert.equal(r.spokenSummary, 'Group of people ahead. Opening on the left.');
+  assert.equal(r.alertKey, 'people:group:ahead:opening:left');
 });
 
 test('a group walking through is not announced', () => {
@@ -133,7 +172,7 @@ test('blocked path says so without claiming anything is safe', () => {
     frame(p('fixed_obstacle_in_path', 0.9), c('fixed_obstacle_kind', 'sign_or_barrier'), c('fixed_obstacle_direction', 'ahead'), s('fixed_obstacle_distance', 1), c('open_side', 'neither')),
     7,
   );
-  assert.equal(r.state === 'ok' && r.spokenSummary, 'Sign or barrier ahead, a few steps away. The way ahead may be blocked; check with your cane or guide.');
+  assert.equal(r.state === 'ok' && r.spokenSummary, 'Sign or barrier ahead. Ahead may be blocked.');
 });
 
 test('ambiguous fixed-obstacle probability -> unknown', () => {
@@ -171,8 +210,8 @@ test('a crowd ahead outranks a fixed obstacle off to the side, which is still me
   );
   assert.equal(r.state, 'ok');
   if (r.state !== 'ok') return;
-  assert.equal(r.alertKey, 'people:crowd:ahead');
-  assert.equal(r.spokenSummary, 'Crowd ahead. Furniture on the right, close. More room on the left.');
+  assert.equal(r.alertKey, 'people:crowd:ahead:opening:left');
+  assert.equal(r.spokenSummary, 'Crowd ahead. Furniture on the right, close. Opening on the left.');
 });
 
 test('no detour hint toward a side where an obstacle was just named, or when unsure', () => {

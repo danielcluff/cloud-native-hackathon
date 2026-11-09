@@ -23,7 +23,7 @@ function useNow(intervalMs: number, active: boolean) {
 
 export default function NavigateScreen() {
   const [permission, requestPermission] = useCameraPermissions();
-  const { announce, speak } = useSpeech();
+  const { announce } = useSpeech();
   const [feedbackOn, setFeedbackOn] = useState(BACKEND_URL !== null);
   const [policy] = useState(() => new FeedbackPolicy());
   const [last, setLast] = useState<{ result: VisionAssessment; capturedAt: number } | null>(null);
@@ -65,11 +65,11 @@ export default function NavigateScreen() {
               if (signal.aborted) return;
               setLast({ result, capturedAt: frame.meta.capturedAt });
               const phrase = policy.decide(result, frame.meta.capturedAt, Date.now());
-              if (phrase) void speak(phrase);
+              if (phrase) announce(phrase);
             },
           }
         : noopFrameConsumer,
-    [feedbackOn, policy, speak],
+    [feedbackOn, policy, announce],
   );
   const { stats, start, stop, captureOnce } = useCaptureLoop(cameraRef, enabled, consumer);
   const now = useNow(500, stats.running || stats.captures > 0);
@@ -103,8 +103,8 @@ export default function NavigateScreen() {
     <Screen>
       <Heading>Navigate</Heading>
       <DemoBanner title="Obstacle hints only — not a safety device">
-        The camera announces fixed obstacles (furniture, columns, steps, signs, barriers) and groups of people standing
-        in your way, and says which side has more room. Single passers-by are not announced. It can miss things and can
+        The camera announces fixed obstacles and people standing in your way. It looks for the nearest visible opening
+        around an obstacle and calls out a lone person who stays in view and is close ahead. It can miss things and can
         never confirm a path is safe. Keep using your cane, guide dog, or a sighted guide, and confirm landmarks for
         direction.
       </DemoBanner>
@@ -168,6 +168,7 @@ export default function NavigateScreen() {
               hint="Takes about one photo per second while this screen is open. Photos are deleted right away."
               disabled={!enabled}
               onPress={() => {
+                policy.reset();
                 start();
                 announce('Capture started.');
               }}
@@ -219,7 +220,7 @@ export default function NavigateScreen() {
             <Body>Last assessment: {resultText}</Body>
             {last?.result.state === 'ok' && !resultStale ? (
               <Body>
-                People in path: {last.result.people}. More room: {last.result.openSide}.
+                People in path: {last.result.people}. Closest visible opening: {last.result.openSide}.
               </Body>
             ) : null}
           </View>
