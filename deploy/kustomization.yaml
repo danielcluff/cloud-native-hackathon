@@ -10,4 +10,4 @@ images:
   - name: conference-assistant-api
     newName: ghcr.io/danielcluff/cloud-native-hackathon/conference-assistant-api
     # Updated by .github/workflows/backend-image.yml ("deploy:" commits). Do not edit by hand.
-    newTag: e8998de
+    newTag: 240aaa7
