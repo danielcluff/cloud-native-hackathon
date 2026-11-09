@@ -1,0 +1,18 @@
+# Inert inside the team vcluster (it has no Gateway). Kept as in the Radar
+# starter: the platform routes https://daniel-cluff.cnh.radarhq.io to
+# Service app, port 80.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app
+spec:
+  parentRefs:
+    - name: cnh
+      namespace: gateway
+      sectionName: https
+  hostnames:
+    - daniel-cluff.cnh.radarhq.io
+  rules:
+    - backendRefs:
+        - name: app
+          port: 80

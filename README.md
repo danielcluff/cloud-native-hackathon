@@ -9,8 +9,9 @@ KubeCon + CloudNativeCon North America 2026. It's built during a six-hour hackat
 > - **Navigate:** sends camera frames to OpenAI Decisions for spoken obstacle
 >   hints.
 > - **Not built yet:** the simulated staff-help request.
-> - **Deployment:** the backend deploys through GitOps to Radar's `dev-local`
->   cluster (see [docs/deploy-radar-dev-local.md](docs/deploy-radar-dev-local.md)).
+> - **Deployment:** the backend deploys through GitOps to the Radar hackathon
+>   cluster `daniel-cluff` at https://daniel-cluff.cnh.radarhq.io (see
+>   [docs/deploy-radar.md](docs/deploy-radar.md)).
 > - **Not tested on a phone yet:** the AI paths have only been tested with fakes.
 
 Flagship features:
@@ -164,6 +165,6 @@ no local Xcode). It would add `react-native-webrtc`,
 `@config-plugins/react-native-webrtc` and `expo-dev-client`. The backend would
 mint the short-lived Realtime credential.
 
-Deployment: [docs/deploy-radar-dev-local.md](docs/deploy-radar-dev-local.md).
+Deployment: [docs/deploy-radar.md](docs/deploy-radar.md).
 See [docs/milestone-1-handoff.md](docs/milestone-1-handoff.md) for architecture,
 validation results and next steps.

@@ -57,14 +57,16 @@ spec:
               drop:
                 - ALL
 ---
+# The hackathon platform routes https://daniel-cluff.cnh.radarhq.io to
+# Service "app", port 80, in namespace team-daniel-cluff. Keep this name/port.
 apiVersion: v1
 kind: Service
 metadata:
-  name: conference-assistant-api
+  name: app
 spec:
   selector:
     app.kubernetes.io/name: conference-assistant-api
   ports:
     - name: http
-      port: 8787
+      port: 80
       targetPort: http

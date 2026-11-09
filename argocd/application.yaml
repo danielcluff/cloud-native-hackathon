@@ -1,24 +1,23 @@
-# Argo CD Application for the backend on the Radar-connected dev-local cluster.
-# Apply once: kubectl apply -n argocd -f argocd/application.yaml
-# Argo CD then syncs deploy/ from main on every push (including "deploy:" tag bumps).
+# Argo CD Application for the Radar hackathon team cluster "daniel-cluff".
+# Apply once (Radar MCP apply_resource, Radar Cloud UI, or kubectl). Argo CD
+# picks up Applications in team-* namespaces. Named "app" so it takes over the
+# starter app: prune removes the starter's Deployment/Service, and our Service
+# "app" (port 80) receives https://daniel-cluff.cnh.radarhq.io.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: conference-assistant-api
-  namespace: argocd
+  name: app
+  namespace: team-daniel-cluff
 spec:
-  # Starter-provisioned clusters use project "team-<team-name>"; a plain Argo CD install uses "default".
-  project: default
+  project: team-daniel-cluff
   source:
     repoURL: https://github.com/danielcluff/cloud-native-hackathon.git
     targetRevision: main
     path: deploy
   destination:
     server: https://kubernetes.default.svc
-    namespace: conference-assistant
+    namespace: team-daniel-cluff
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
