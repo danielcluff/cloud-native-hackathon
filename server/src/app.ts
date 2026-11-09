@@ -1,12 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { HealthResponse, VisionAssessment, VoiceTurnResult } from '../../shared/contracts.ts';
 import type { ServerConfig } from './config.ts';
+import { tokenMatches, UsageCaps } from './guard.ts';
 import { Interviewer } from './interview.ts';
 import { createOpenAIClient, type OpenAIClient } from './openai.ts';
 import { createScheduleCatalog, type ScheduleCatalog } from './schedule.ts';
 import { buildVisionRequest, mapVisionAnswers } from './vision.ts';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 const MAX_FRAME_BYTES = 3 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
@@ -77,6 +78,13 @@ export function createApp(config: ServerConfig, deps: AppDeps = {}): Server {
         : null;
   const catalog = deps.catalog ?? createScheduleCatalog();
   const interviewer = new Interviewer(ai, catalog, deps.clock);
+  const caps = new UsageCaps(config.limits);
+
+  /** Typed `unavailable` body so the app can explain it (works for both result types). */
+  function refuse(req: IncomingMessage, res: ServerResponse, status: number, reason: string) {
+    req.resume();
+    sendJson(res, status, { state: 'unavailable', reason });
+  }
 
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
     if (req.method === 'GET' && path === '/health') {
@@ -86,8 +94,30 @@ export function createApp(config: ServerConfig, deps: AppDeps = {}): Server {
         version: VERSION,
         time: new Date().toISOString(),
         integrations: { openai: ai ? 'configured' : 'not_configured' },
+        auth: config.appAccessToken ? 'token' : 'none',
       };
       return sendJson(res, 200, body);
+    }
+
+    if (path.startsWith('/v1/') && config.appAccessToken && !tokenMatches(req.headers.authorization, config.appAccessToken)) {
+      return refuse(req, res, 401, 'This phone is not paired with the backend. Add the pairing token in Help.');
+    }
+
+    if (req.method === 'GET' && path === '/v1/auth/check') {
+      return sendJson(res, 200, { state: 'ok' });
+    }
+
+    const capKind = req.method === 'POST' ? ({ '/v1/vision/assess': 'vision', '/v1/voice/turn': 'voice' } as const)[path] : undefined;
+    if (capKind && ai) {
+      const hit = caps.take(capKind);
+      if (hit) {
+        return refuse(
+          req,
+          res,
+          429,
+          hit === 'day' ? 'Daily usage limit reached. It resets at midnight UTC.' : 'Too many requests. Wait a minute and try again.',
+        );
+      }
     }
 
     if (req.method === 'POST' && path === '/v1/vision/assess') {

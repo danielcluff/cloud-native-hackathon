@@ -36,6 +36,13 @@ spec:
                   name: conference-assistant-api
                   key: OPENAI_API_KEY
                   optional: true
+            # Required on purpose: without a pairing token the pod won't start
+            # (CreateContainerConfigError) instead of serving the public URL unauthenticated.
+            - name: APP_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: conference-assistant-api
+                  key: APP_ACCESS_TOKEN
           readinessProbe:
             httpGet:
               path: /health

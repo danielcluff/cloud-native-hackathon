@@ -17,7 +17,7 @@ Argo CD watches main:deploy/ ─► syncs into team-daniel-cluff ─► platform
 | CI | `.github/workflows/backend-image.yml` |
 | Manifests | `deploy/backend.yaml` (Deployment `conference-assistant-api`, Service **`app` port 80**), `deploy/httproute.yaml`, `deploy/kustomization.yaml` (namespace `team-daniel-cluff`) |
 | Argo CD Application | `argocd/application.yaml`: name `app`, namespace and project `team-daniel-cluff` |
-| Secret (not in git) | `conference-assistant-api`, key `OPENAI_API_KEY`, in `team-daniel-cluff` |
+| Secret (not in git) | `conference-assistant-api` in `team-daniel-cluff`, keys `OPENAI_API_KEY` and **`APP_ACCESS_TOKEN`** (required) |
 | Public URL | https://daniel-cluff.cnh.radarhq.io (platform-managed TLS) |
 
 Platform rules from the starter that this layout follows:
@@ -38,7 +38,7 @@ Platform rules from the starter that this layout follows:
 | The fresh OpenAI key works (live voice turn and Decisions call succeeded) | ✅ |
 | `https://daniel-cluff.cnh.radarhq.io` is live and still serving the **starter app** | ✅ checked |
 | Claude's Radar MCP can see `daniel-cluff` | ❌ The MCP session is bound to org "daniel cloud native hackathon", which only has `dev-local`. Team clusters live in the "Cloud Native Hackathon" org. Re-authenticate radar-cloud (`/mcp`) and choose that org, or apply from the Radar Cloud UI. |
-| Secret created in `team-daniel-cluff` | ⏳ Daniel |
+| Secret created in `team-daniel-cluff` (both keys) | ⏳ Daniel |
 | Argo CD Application applied | ⏳ after the manifests reach `main` |
 
 ## 1. Get these manifests onto `main`
@@ -49,31 +49,51 @@ they just sync.
 
 ## 2. Create the Secret
 
-Create it **before** the first sync so the pod starts with the key.
+The Secret holds two values. Create it **before** the first sync:
+- `OPENAI_API_KEY`: the server-only OpenAI key.
+- `APP_ACCESS_TOKEN`: the pairing token that only your phone knows. It's
+  **required**; without it the pod refuses to start rather than serving the
+  public URL with no authentication.
+
+Generate the pairing token on your Mac and keep it in your password manager:
+
+```bash
+openssl rand -hex 32
+```
 
 **From the Radar Cloud UI:** open cluster `daniel-cluff` → namespace
-`team-daniel-cluff` → create a Secret named `conference-assistant-api` with key
-`OPENAI_API_KEY`.
+`team-daniel-cluff` → create Secret `conference-assistant-api` with both keys.
 
-**Or with kubectl**, using the team kubeconfig. Per the starter it's stored in
-Secret `kubeconfig` in namespace `default`; save it outside the repo. The API
-is `https://daniel-cluff.vc.cnh.radarhq.io`. Read the key without echoing it,
-so it never lands in shell history:
+**Or with kubectl**, using the team kubeconfig (per the starter it's stored in
+Secret `kubeconfig` in namespace `default`; save it outside the repo). This
+reads both values without echoing them:
 
 ```bash
 export KUBECONFIG=~/cnh-kubeconfig
-read -rs OPENAI_API_KEY && kubectl -n team-daniel-cluff create secret generic conference-assistant-api \
-  --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY" && unset OPENAI_API_KEY
+read -rs OPENAI_API_KEY && read -rs APP_ACCESS_TOKEN && \
+  kubectl -n team-daniel-cluff create secret generic conference-assistant-api \
+    --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY" --from-literal=APP_ACCESS_TOKEN="$APP_ACCESS_TOKEN" && \
+  unset OPENAI_API_KEY APP_ACCESS_TOKEN
 ```
 
-Argo CD won't prune this Secret, because it didn't create it. Without the
-Secret the pod still starts and reports `openai: not_configured`.
+Argo CD won't prune this Secret, because it didn't create it. To rotate the
+token, update the Secret, restart the Deployment, and paste the new token on
+the phone.
 
-Optional model overrides go in the Deployment env: `OPENAI_VISION_MODEL`
-(default `gpt-6-luna`), `OPENAI_TRANSCRIBE_MODEL` (`gpt-transcribe`) and
-`OPENAI_TEXT_MODEL` (`gpt-6-astra`).
+Optional env in the Deployment:
+- Model overrides: `OPENAI_VISION_MODEL` (default `gpt-6-luna`),
+  `OPENAI_TRANSCRIBE_MODEL` (`gpt-transcribe`) and `OPENAI_TEXT_MODEL`
+  (`gpt-6-astra`).
+- Usage caps: `LIMIT_VISION_PER_MINUTE` (70), `LIMIT_VISION_PER_DAY` (3000),
+  `LIMIT_VOICE_PER_MINUTE` (10) and `LIMIT_VOICE_PER_DAY` (300).
 
 ## 3. Apply the Argo CD Application (takes over the starter app)
+
+**Wait for the new image first.** Merging this PR changes `server/`, so the
+workflow builds a new image (backend `0.3.0`, with pairing and caps) and pushes
+a `deploy:` commit to `main`. Apply the Application only after that commit
+exists. The older `9c2db02` image ignores `APP_ACCESS_TOKEN` and would serve
+the public URL without authentication.
 
 Do this with Radar MCP `apply_resource` (ask the agent, once it can see
 `daniel-cluff`), the Radar Cloud UI, or:
@@ -90,7 +110,9 @@ Deployment and Service with ours.
 
 ```bash
 curl -s https://daniel-cluff.cnh.radarhq.io/health
-# {"status":"ok","service":"cnh-backend","version":"0.2.0",...,"integrations":{"openai":"configured"}}
+# {"status":"ok","service":"cnh-backend","version":"0.3.0",...,"integrations":{"openai":"configured"},"auth":"token"}
+curl -s -o /dev/null -w "%{http_code}\n" https://daniel-cluff.cnh.radarhq.io/v1/auth/check
+# 401  (no token: refused)
 ```
 
 In Radar, check that the Application `app` is Synced/Healthy and that the
@@ -104,28 +126,49 @@ kubectl -n team-daniel-cluff exec deploy/conference-assistant-api -- \
   node -e "fetch('https://sessionize.com/api/v2/svi82w6c/view/All').then(r=>console.log(r.status))"
 ```
 
-## 5. Point the iPhone at it
+## 5. Point the iPhone at it and pair it
 
-`mobile/.env`:
+1. In `mobile/.env`, set:
+   ```
+   EXPO_PUBLIC_BACKEND_URL=https://daniel-cluff.cnh.radarhq.io
+   ```
+   Then restart `npx expo start`.
+2. Get the pairing token onto the phone. Copy it on the Mac and paste on the
+   iPhone with Universal Clipboard, or AirDrop it as a note.
+3. In the app, open Help → **Pair this phone**, paste the token, then tap
+   **Save and check**. It should say "Paired". The token is stored in the iOS
+   keychain (this device only, never backed up) and is sent only as an
+   `Authorization` header to the backend.
+4. Help → **Check backend** should report "Pairing required".
 
-```
-EXPO_PUBLIC_BACKEND_URL=https://daniel-cluff.cnh.radarhq.io
-```
+The public URL is HTTPS, so the phone works over cellular or any Wi-Fi.
 
-Restart `npx expo start`, then in the app use Help → **Check backend**. Because
-the URL is public HTTPS, the phone can use cellular or any Wi-Fi; no
-port-forward or shared network is needed.
+## Access control and spend limits
 
-## ⚠️ Public endpoint cost exposure
+Anyone can reach the URL, so the backend protects the paid endpoints:
 
-The URL is public and the API has no authentication. Anyone who finds it can
-call `/v1/voice/turn` and `/v1/vision/assess`, which spends OpenAI credit.
-Mitigations, in order of effort:
-1. Set a hard monthly budget and alerts on the OpenAI project that owns the key.
-2. Remove the Secret (or scale to 0) when you're not demoing.
-3. Add a simple per-IP rate limit and/or a shared app token to the backend.
-   It's not built yet; a token in the app bundle is only a speed bump, not a
-   secret.
+| Control | Behavior |
+| --- | --- |
+| Pairing token | Every `/v1/*` call needs `Authorization: Bearer <APP_ACCESS_TOKEN>`. Without it the response is 401 and the app says "not paired". `/health` stays open and shows only `auth: "token"`. The comparison is constant-time, and the token is never logged. |
+| Usage caps | In memory, per replica. Vision: 70/min and 3,000/day. Voice turns: 10/min and 300/day. Over a cap the response is 429 with a spoken reason. Daily caps reset at midnight UTC. |
+| OpenAI key scope | Restrict the key to the three endpoints below. |
+
+**OpenAI endpoints and models this backend uses** (for key or project
+allowlists):
+
+| Feature | Endpoint | Model (default) |
+| --- | --- | --- |
+| Obstacle checks (Navigate) | `POST /v1/decisions` | `gpt-6-luna` |
+| Speech-to-text (Plan, push-to-talk) | `POST /v1/audio/transcriptions` | `gpt-transcribe` |
+| Planning replies (Plan) | `POST /v1/responses`, structured JSON output | `gpt-6-astra` |
+
+Nothing else is called: no Realtime, embeddings, files, images or
+text-to-speech. Speech output uses the phone's own voice.
+
+This is a shared secret, not device attestation. Whoever holds the token can
+use the backend, so treat it like a password. True per-device attestation
+(Apple App Attest) needs a native development build, which this Expo Go
+project deliberately avoids.
 
 ## Rolling back
 

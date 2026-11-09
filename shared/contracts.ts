@@ -32,6 +32,8 @@ export interface HealthResponse {
   integrations: {
     openai: 'configured' | 'not_configured';
   };
+  /** 'token' = /v1/* requires a pairing token; 'none' = open (local dev only). */
+  auth: 'token' | 'none';
 }
 
 // ---------- Vision (obstacle assessment) ----------
