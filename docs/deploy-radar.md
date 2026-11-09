@@ -15,10 +15,14 @@ Argo CD watches main:deploy/ ─► syncs into team-daniel-cluff ─► platform
 | --- | --- |
 | Image | `ghcr.io/danielcluff/cloud-native-hackathon/conference-assistant-api` (public, amd64 + arm64) |
 | CI | `.github/workflows/backend-image.yml` |
-| Manifests | `deploy/backend.yaml` (Deployment `conference-assistant-api`, Service **`app` port 80**), `deploy/httproute.yaml`, `deploy/kustomization.yaml` (namespace `team-daniel-cluff`) |
+| Manifests | `deploy/backend.yaml` (Deployment **`app`**, selector `app: app`, and Service **`app` port 80**), `deploy/httproute.yaml`, `deploy/kustomization.yaml` (namespace `team-daniel-cluff`) |
 | Argo CD Application | `argocd/application.yaml`: name `app`, namespace and project `team-daniel-cluff` |
 | Secret (not in git) | `conference-assistant-api` in `team-daniel-cluff`, keys `OPENAI_API_KEY` and **`APP_ACCESS_TOKEN`** (required) |
 | Public URL | https://daniel-cluff.cnh.radarhq.io (platform-managed TLS) |
+
+Agent procedures for this cluster (ship, debug, canary, demo story) are in
+`AGENTS.md` and `.agents/skills/`, adapted from the hackathon starter
+[danielcluff/cnh-radar](https://github.com/danielcluff/cnh-radar).
 
 Platform rules from the starter that this layout follows:
 - The platform routes the team URL to **Service `app`, port 80**, in
@@ -28,6 +32,10 @@ Platform rules from the starter that this layout follows:
 - Argo CD picks up Applications in `team-*` namespaces, using project
   `team-<team-name>`.
 - Don't upgrade or touch the `radar` namespace.
+- Budget across the whole cluster: 2 CPU / 4 GiB of requests and 4 CPU / 8 GiB
+  of limits. The backend asks for 50m / 64Mi and is capped at 500m / 256Mi.
+- Our Deployment is named `app` with selector `app: app`, the same as the
+  starter's, because Argo CD updates it in place and a selector can't change.
 
 ## Status (2026-11-09)
 
@@ -37,7 +45,8 @@ Platform rules from the starter that this layout follows:
 | GHCR package is public; anonymous pull works for `linux/amd64` and `linux/arm64` | ✅ |
 | The fresh OpenAI key works (live voice turn and Decisions call succeeded) | ✅ |
 | `https://daniel-cluff.cnh.radarhq.io` is live and still serving the **starter app** | ✅ checked |
-| Claude's Radar MCP can see `daniel-cluff` | ❌ The MCP session is bound to org "daniel cloud native hackathon", which only has `dev-local`. Team clusters live in the "Cloud Native Hackathon" org. Re-authenticate radar-cloud (`/mcp`) and choose that org, or apply from the Radar Cloud UI. |
+| Claude's Radar MCP can see `daniel-cluff` | ✅ Org "Cloud Native Hackathon", cluster id `Bz1Wh8FsXMU`. Only ever call tools with this id. |
+| Live state (read-only check) | The starter Deployment `app` (2/2, `node:22-alpine`, selector `app: app`) is running. There's no Argo CD Application `app` yet and no Secrets. A server-side dry run of our Deployment against the cluster passed validation. |
 | Secret created in `team-daniel-cluff` (both keys) | ⏳ Daniel |
 | Argo CD Application applied | ⏳ after the manifests reach `main` |
 
@@ -110,19 +119,19 @@ Deployment and Service with ours.
 
 ```bash
 curl -s https://daniel-cluff.cnh.radarhq.io/health
-# {"status":"ok","service":"cnh-backend","version":"0.3.0",...,"integrations":{"openai":"configured"},"auth":"token"}
+# {"status":"ok","service":"cnh-backend","version":"0.3.0","commit":"<sha7>",...,"integrations":{"openai":"configured"},"auth":"token"}
 curl -s -o /dev/null -w "%{http_code}\n" https://daniel-cluff.cnh.radarhq.io/v1/auth/check
 # 401  (no token: refused)
 ```
 
-In Radar, check that the Application `app` is Synced/Healthy and that the
-image tag matches the latest `deploy:` commit. For the sponsor demo, run a
-Radar investigation against the `conference-assistant-api` workload.
+In Radar, check that the Application `app` is Synced/Healthy. `/health`'s `commit`
+must equal the tag in the latest `deploy:` commit. For the sponsor demo, run a
+Radar investigation against Deployment `app`. See `.agents/skills/demo-story`.
 
 Then check that the pod can reach the outside services:
 
 ```bash
-kubectl -n team-daniel-cluff exec deploy/conference-assistant-api -- \
+kubectl -n team-daniel-cluff exec deploy/app -- \
   node -e "fetch('https://sessionize.com/api/v2/svi82w6c/view/All').then(r=>console.log(r.status))"
 ```
 

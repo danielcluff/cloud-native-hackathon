@@ -6,6 +6,8 @@
 export interface ServerConfig {
   port: number;
   host: string;
+  /** Image commit (APP_VERSION build arg). */
+  commit: string;
   /** Present only when a real-looking key is configured. Never log this. */
   openaiApiKey: string | null;
   /** Pairing token required on /v1/* when set. Never log this. */
@@ -30,6 +32,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port: Number.isFinite(port) ? port : 8787,
     host: env.HOST?.trim() || '0.0.0.0',
+    commit: env.APP_VERSION?.trim() || 'dev',
     openaiApiKey: PLACEHOLDER_KEYS.has(rawKey) ? null : rawKey,
     appAccessToken: PLACEHOLDER_TOKENS.has(env.APP_ACCESS_TOKEN?.trim() ?? '') ? null : env.APP_ACCESS_TOKEN!.trim(),
     limits: {

@@ -26,6 +26,8 @@ export interface HealthResponse {
   status: 'ok';
   service: 'cnh-backend';
   version: string;
+  /** Seven-character git commit of the running image ("dev" locally). */
+  commit: string;
   /** ISO timestamp from the server clock. */
   time: string;
   /** Whether server-side integrations are configured. Never includes secrets. */

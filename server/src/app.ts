@@ -87,11 +87,19 @@ export function createApp(config: ServerConfig, deps: AppDeps = {}): Server {
   }
 
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+    // Plain-text version at the root, like the Radar starter, for deploy verification.
+    if (req.method === 'GET' && path === '/') {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(`cnh-backend ${VERSION} version ${config.commit}\n`);
+      return;
+    }
+
     if (req.method === 'GET' && path === '/health') {
       const body: HealthResponse = {
         status: 'ok',
         service: 'cnh-backend',
         version: VERSION,
+        commit: config.commit,
         time: new Date().toISOString(),
         integrations: { openai: ai ? 'configured' : 'not_configured' },
         auth: config.appAccessToken ? 'token' : 'none',

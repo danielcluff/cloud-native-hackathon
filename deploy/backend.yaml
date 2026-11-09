@@ -1,15 +1,22 @@
+# Named "app" with selector app=app to match the platform's starter app, which
+# Argo CD takes over in place (a Deployment's selector is immutable).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: conference-assistant-api
+  name: app
+  labels:
+    app: app
+    app.kubernetes.io/name: conference-assistant-api
 spec:
+  # Conversation state is in memory: keep exactly one replica.
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: conference-assistant-api
+      app: app
   template:
     metadata:
       labels:
+        app: app
         app.kubernetes.io/name: conference-assistant-api
     spec:
       automountServiceAccountToken: false
@@ -20,7 +27,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: backend
+        - name: app
           image: conference-assistant-api
           ports:
             - name: http
@@ -56,6 +63,7 @@ spec:
               cpu: 50m
               memory: 64Mi
             limits:
+              cpu: 500m
               memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
@@ -70,9 +78,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: app
+  labels:
+    app: app
 spec:
   selector:
-    app.kubernetes.io/name: conference-assistant-api
+    app: app
   ports:
     - name: http
       port: 80

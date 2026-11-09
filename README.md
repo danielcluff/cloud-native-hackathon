@@ -34,7 +34,8 @@ server/   Node 24 TypeScript backend (no framework, no runtime deps): OpenAI Dec
           transcription and Responses; live Sessionize schedule feed
 deploy/   Kustomize manifests; argocd/ Argo CD Application; .github/workflows/ image CI
 shared/   Type-only contracts used by both (shared/contracts.ts)
-docs/     Handoff notes and sponsor integration notes
+docs/     Handoff notes, deploy guide (docs/deploy-radar.md), sponsor notes
+AGENTS.md, .agents/skills/, examples/   Radar hackathon agent guide and procedures
 ```
 
 ## Prerequisites
