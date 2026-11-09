@@ -6,6 +6,8 @@ import { useSpeech } from '../audio/SpeechProvider';
 import type { VisionAssessment } from '../../../shared/contracts';
 import { assessFrame } from '../api';
 import { noopFrameConsumer, type FrameConsumer } from '../capture/captureLoop';
+import { DirectionFeed } from '../capture/DirectionFeedView';
+import { makeEntry, pushEntry, type FeedEntry } from '../capture/directionFeed';
 import { FeedbackPolicy, VISION_STALE_AFTER_MS } from '../capture/feedbackPolicy';
 import { useCaptureLoop } from '../capture/useCaptureLoop';
 import { BACKEND_URL } from '../config';
@@ -27,6 +29,9 @@ export default function NavigateScreen() {
   const [feedbackOn, setFeedbackOn] = useState(BACKEND_URL !== null);
   const [policy] = useState(() => new FeedbackPolicy());
   const [last, setLast] = useState<{ result: VisionAssessment; capturedAt: number } | null>(null);
+  // Debug text feed of every assessment and whether it was announced.
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const feedId = useRef(0);
   const cameraRef = useRef<CameraView>(null);
   const [focused, setFocused] = useState(false);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
@@ -64,8 +69,11 @@ export default function NavigateScreen() {
               const result = await assessFrame(frame, signal);
               if (signal.aborted) return;
               setLast({ result, capturedAt: frame.meta.capturedAt });
-              const phrase = policy.decide(result, frame.meta.capturedAt, Date.now());
+              const decidedAt = Date.now();
+              const phrase = policy.decide(result, frame.meta.capturedAt, decidedAt);
               if (phrase) announce(phrase);
+              const id = ++feedId.current;
+              setFeed((f) => pushEntry(f, makeEntry(id, result, phrase, frame.meta, decidedAt)));
             },
           }
         : noopFrameConsumer,
@@ -146,6 +154,7 @@ export default function NavigateScreen() {
             ) : null}
           </View>
           {mountError ? <Status tone="error">Camera error: {mountError}</Status> : null}
+          {feedbackOn ? <DirectionFeed entries={feed} onClear={() => setFeed([])} /> : null}
           <Status>
             {stats.running
               ? 'Capturing about one frame per second.'
@@ -169,6 +178,7 @@ export default function NavigateScreen() {
               disabled={!enabled}
               onPress={() => {
                 policy.reset();
+                setFeed([]);
                 start();
                 announce('Capture started.');
               }}
@@ -189,6 +199,7 @@ export default function NavigateScreen() {
               setFeedbackOn(next);
               policy.reset();
               setLast(null);
+              setFeed([]);
               announce(next ? 'Obstacle feedback on.' : 'Obstacle feedback off.');
             }}
           />

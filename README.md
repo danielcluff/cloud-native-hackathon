@@ -115,6 +115,12 @@ cd server && npm run typecheck && npm test
     assessment while it persists. "No fixed obstacles detected in view" can
     play at startup or after a hazard clears. Stale results are never spoken.
     It **never says a path is safe**.
+  - **Live directions (debug)** under the camera preview shows, as text, every
+    cue the app produced: the latest in large type, then earlier lines with the
+    time, frame number and round-trip latency. 🔊 marks lines that were
+    announced; quiet lines say why (stale, repeat, waiting for a second frame).
+    It's evidence of what happened when there's no audio, and it isn't
+    announced itself.
   - Capture stops automatically when you leave the screen or the app goes to
     the background.
 - **Help**:
