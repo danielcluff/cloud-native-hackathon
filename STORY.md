@@ -26,6 +26,30 @@ starter app itself.
 
 Live issues at the same time (`issues`, `team-daniel-cluff`): none.
 
+## AI investigation
+
+Started through the Radar MCP (`start_investigation`) on **Deployment `app`** in
+`team-daniel-cluff`, 2026-11-09 16:56 MST, against image `41a9e35` (graded steering).
+Run `chat_1dzENloqxHrQt6eT`:
+https://app.radarhq.io/c/Bz1Wh8FsXMU/investigations/chat_1dzENloqxHrQt6eT?org=org_NCJbssDGEBsU
+
+**Verdict: healthy, no fix needed** (confidence 0.9, certainty "established").
+
+- The single replica is ready and available. The rollout to `41a9e35` completed
+  (Progressing condition: new ReplicaSet available).
+- Pod logs show `/health` answering 200 every few seconds with no errors, and
+  restarts are flat at 0 over the last hour.
+- A brief drop in ready replicas from 2 to 1 right after the image change was the
+  normal surge-then-settle of a rolling update, not a failure. No Warning events.
+- The only open note is the known `singleReplica` audit finding (see Before). It's a
+  resilience risk, not a current problem; we keep one replica on purpose while
+  interview state lives in memory.
+
+Context: earlier the same day, a deploy got stuck when an all-digit commit tag
+(`9636345`) became a YAML number and Argo CD failed to render the manifests. Radar
+flagged it as `gitops_render_failed`, `diagnose` on the Application showed the
+kustomize error, and the fix (quoting the tag in CI, PR #9) rolled out as `41a9e35`.
+
 ## After
 
 _To fill in before 5:30: re-run Checks for `team-daniel-cluff`, say what was fixed and
